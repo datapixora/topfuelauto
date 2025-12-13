@@ -16,4 +16,5 @@
 14. [x] Fix non-UTF8 web file (search page) for Render build.
 15. [x] Fix /search suspense CSR bailout.
 16. [x] Pin Render Python version to 3.12 to avoid pydantic-core build.
-17. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust.
+17. [x] Add email-validator for EmailStr.
+18. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust and /health 200.
