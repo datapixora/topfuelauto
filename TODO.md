@@ -32,4 +32,5 @@
 30. [x] Auth foundations (login + admin access).
 31. [x] ChatGPT-friendly README/guide (pending after revert).
 32. [x] Login now returns 401 (not 500) on bad credentials.
-33. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL), confirm web/admin works and /api/v1/health passes.
+33. [x] Admin bootstrap user script added.
+34. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL, ADMIN_EMAIL, ADMIN_PASSWORD), confirm web/admin works and /api/v1/health passes.

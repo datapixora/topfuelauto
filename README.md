@@ -52,11 +52,12 @@ Search-first marketplace MVP across web, API, and mobile.
 
 ## Admin Access
 - Log in at `/login` (or `/account`) to obtain a JWT.
-- Promote the user to admin in Postgres (Render shell → `cd api`):
+- Promote the user to admin in Postgres (Render shell -> `cd api`):
   ```sql
   UPDATE users SET is_admin = true WHERE email = 'admin@example.com';
   ```
 - Re-login so the stored token is fresh, then open `/admin`.
+- Automated bootstrap: set `ADMIN_EMAIL` and `ADMIN_PASSWORD`, then run `cd api && PYTHONPATH=. python scripts/bootstrap_admin.py` (idempotent; marks existing user as admin or creates one).
 
 ## Migrations
 Run `alembic upgrade head` after containers start (local) or from a Render shell on the api service (`cd api && alembic upgrade head`). Migration enables `unaccent` and `pg_trgm` and creates all tables.
@@ -65,10 +66,8 @@ Run `alembic upgrade head` after containers start (local) or from a Render shell
 Celery worker runs via `docker compose` service `worker` (and Render worker) with placeholder periodic task; extend for future jobs.
 
 ## Required Environment Variables
-- API/Worker: `DATABASE_URL` (from Render Postgres), `CELERY_BROKER_URL` + `CELERY_RESULT_BACKEND` (from Render Redis), `JWT_SECRET`, `ALLOWED_ORIGINS`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `NHTSA_API_BASE` (default provided).
-- Web:  
-  - `NEXT_PUBLIC_API_BASE_URL` (e.g., `https://api.topfuelauto.com/api/v1` on Render today; later Vercel can point to the same).  
-  - `NEXT_PUBLIC_SITE_URL` (optional, e.g., `https://topfuelauto.com`) — use if you need absolute links.
+- API/Worker: `DATABASE_URL` (from Render Postgres), `CELERY_BROKER_URL` + `CELERY_RESULT_BACKEND` (from Render Redis), `JWT_SECRET`, `ALLOWED_ORIGINS`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `NHTSA_API_BASE` (default provided), `ADMIN_EMAIL`, `ADMIN_PASSWORD` (for bootstrap script).
+- Web:  `NEXT_PUBLIC_API_BASE_URL` (e.g., `https://api.topfuelauto.com/api/v1` on Render today; later Vercel can point to the same). Optional: `NEXT_PUBLIC_SITE_URL` (e.g., `https://topfuelauto.com`).
 
 ## Encoding Note
 Ensure source files are saved as UTF-8 (no UTF-16/BOM from some Windows editors), otherwise Next.js builds on Render will fail on read.
