@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.security import get_password_hash
+import app.models  # noqa: F401 ensures all model mappers are loaded
 from app.models.user import User
 
 
