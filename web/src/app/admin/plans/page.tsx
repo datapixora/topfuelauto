@@ -1,5 +1,4 @@
-﻿
- "use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE, authHeaders } from "../../../lib/api";
@@ -80,14 +79,13 @@ export default function AdminPlans() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const openEdit = (plan: Plan) => {
     setEditId(plan.id);
     setForm({
       name: plan.name || "",
-      price: plan.price_monthly ?? "",
+      price: plan.price_monthly == null ? "" : String(plan.price_monthly),
       features: JSON.stringify(plan.features || {}, null, 2),
       quotas: JSON.stringify(plan.quotas || {}, null, 2),
     });
@@ -102,7 +100,7 @@ export default function AdminPlans() {
     if (!plan) return;
     setForm({
       name: plan.name || "",
-      price: plan.price_monthly ?? "",
+      price: plan.price_monthly == null ? "" : String(plan.price_monthly),
       features: JSON.stringify(plan.features || {}, null, 2),
       quotas: JSON.stringify(plan.quotas || {}, null, 2),
     });
@@ -128,8 +126,9 @@ export default function AdminPlans() {
       setParseError("Quotas JSON invalid");
       return;
     }
-    const priceVal = form.price === "" ? null : Number(form.price);
-    if (form.price !== "" && Number.isNaN(priceVal)) {
+    const priceTrim = form.price.trim();
+    const priceVal = priceTrim === "" ? null : Number(priceTrim);
+    if (priceTrim !== "" && (!Number.isFinite(priceVal) || Number.isNaN(priceVal))) {
       setParseError("Price must be a number or blank");
       return;
     }
@@ -232,7 +231,7 @@ export default function AdminPlans() {
                     {featureList.map((item) => (
                       <div key={item.key} className="flex items-center gap-2">
                         <span className={`text-lg ${item.enabled ? "text-emerald-400" : "text-slate-500"}`}>
-                          {item.enabled ? "✔" : "✕"}
+                          {item.enabled ? "Yes" : "No"}
                         </span>
                         <span className="text-slate-200">{item.label}</span>
                       </div>
@@ -247,42 +246,42 @@ export default function AdminPlans() {
                       <div key={item.key} className="flex items-center justify-between gap-2">
                         <span className="text-slate-200">{item.label}</span>
                         <span className="text-slate-100 font-mono">
-                          {item.value === undefined || item.value === null ? "—" : item.value}
+                          {item.value === undefined || item.value === null ? "-" : item.value}
                         </span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                  {showAdvanced && (
-                    <div className="rounded border border-slate-800 bg-slate-950 px-3 py-2">
-                      <div className="flex items-center justify-between text-xs text-slate-400">
-                        <span>Advanced (JSON)</span>
-                        <button
-                          className="underline"
-                          onClick={() => setAdvancedOpen({ ...advancedOpen, [plan.id]: !isAdvancedOpen })}
-                        >
-                          {isAdvancedOpen ? "Hide" : "Show"}
-                        </button>
-                      </div>
-                      {isAdvancedOpen && (
-                        <div className="mt-2 space-y-2 text-xs">
-                          {unknownFeatures.length > 0 && (
-                            <div>
-                              <div className="text-slate-400">Other features</div>
-                              <JsonViewer value={Object.fromEntries(unknownFeatures)} />
-                            </div>
-                          )}
-                          {unknownQuotas.length > 0 && (
-                            <div>
-                              <div className="text-slate-400">Other quotas</div>
-                              <JsonViewer value={Object.fromEntries(unknownQuotas)} />
-                            </div>
-                          )}
-                        </div>
-                      )}
+                {showAdvanced && (
+                  <div className="rounded border border-slate-800 bg-slate-950 px-3 py-2">
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span>Advanced (JSON)</span>
+                      <button
+                        className="underline"
+                        onClick={() => setAdvancedOpen({ ...advancedOpen, [plan.id]: !isAdvancedOpen })}
+                      >
+                        {isAdvancedOpen ? "Hide" : "Show"}
+                      </button>
                     </div>
-                  )}
+                    {isAdvancedOpen && (
+                      <div className="mt-2 space-y-2 text-xs">
+                        {unknownFeatures.length > 0 && (
+                          <div>
+                            <div className="text-slate-400">Other features</div>
+                            <JsonViewer value={Object.fromEntries(unknownFeatures)} />
+                          </div>
+                        )}
+                        {unknownQuotas.length > 0 && (
+                          <div>
+                            <div className="text-slate-400">Other quotas</div>
+                            <JsonViewer value={Object.fromEntries(unknownQuotas)} />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex justify-end">
                   <Button variant="ghost" onClick={() => openEdit(plan)}>
@@ -300,7 +299,7 @@ export default function AdminPlans() {
           <div className="p-4 space-y-3 text-sm">
             <div className="flex items-center justify-between">
               <div className="text-lg font-semibold">Edit plan</div>
-              <Button variant="ghost" size="sm" onClick={resetToCurrent}>
+              <Button variant="ghost" onClick={resetToCurrent}>
                 Reset to current
               </Button>
             </div>
