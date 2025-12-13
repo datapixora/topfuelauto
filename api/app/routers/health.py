@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+# Versioned health endpoint
 router = APIRouter(prefix="/api/v1", tags=["health"])
 
 

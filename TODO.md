@@ -23,4 +23,5 @@
 21. [x] Fixed API base URL join (no duplicate /api/v1) and removed any domain hardcoding.
 22. [x] Added /api/v1/health endpoint and aligned web health check.
 23. [x] API health available at /api/v1/health (and /health alias kept).
-24. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS, NEXT_PUBLIC_API_BASE_URL), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust and /health 200.
+24. [x] Fixed health router import and ensured /api/v1/health works.
+25. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS, NEXT_PUBLIC_API_BASE_URL), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust and /health 200.
