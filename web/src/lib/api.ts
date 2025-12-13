@@ -1,7 +1,10 @@
 import { getToken } from "./auth";
 import { Listing, SearchResult, TokenResponse } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://localhost:8000/api/v1";
 
 const authHeaders = () => {
   const token = getToken();
