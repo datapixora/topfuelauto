@@ -34,6 +34,8 @@ services:
         generateValue: true
       - key: CORS_ORIGINS
         value: https://app.topfuelauto.com,http://localhost:3000
+      - key: PYTHON_VERSION
+        value: 3.12.8
 
   - type: worker
     name: topfuelauto-worker
@@ -61,6 +63,8 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.12.8
 
   - type: web
     name: topfuelauto-web
