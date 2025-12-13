@@ -38,4 +38,5 @@
 36. [x] Pin bcrypt/passlib compatible versions and backend check.
 37. [x] User subscription page UI.
 38. [x] Admin plans edit wired to API (UI).
-39. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL, ADMIN_EMAIL, ADMIN_PASSWORD), confirm web/admin works and /api/v1/health passes.
+39. [x] Stop 404 on /api/v1/admin/plans with temporary router.
+40. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL, ADMIN_EMAIL, ADMIN_PASSWORD), confirm web/admin works and /api/v1/health passes.

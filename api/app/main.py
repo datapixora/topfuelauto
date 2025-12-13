@@ -5,6 +5,7 @@ from app.core.config import get_settings
 from app.routers import auth, listings, search, vin, broker
 from app.routers.health import router as health_router
 from app.routers.admin import router as admin_router
+from app.routers.admin_plans import router as admin_plans_router
 
 settings = get_settings()
 
@@ -37,3 +38,4 @@ app.include_router(vin.router)
 app.include_router(broker.router)
 app.include_router(health_router)
 app.include_router(admin_router)
+app.include_router(admin_plans_router)
