@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+
+# Node
+node_modules/
+.next/
+out/
+
+# Flutter/Dart
+build/
+.dart_tool/
+.packages
+.pub-cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+
+# Alembic
+versions/
+
+# Docker
+*.log
+
+# VSCode
+.vscode/
