@@ -40,3 +40,4 @@
 38. [x] Admin plans edit wired to API (UI).
 39. [x] Replace temporary /api/v1/admin/plans with DB-backed model, migration, and seed script.
 40. [ ] Redeploy Render Blueprint, run `alembic upgrade head` and `python scripts/seed_plans.py`, set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL, ADMIN_EMAIL, ADMIN_PASSWORD), confirm web/admin works and /api/v1/health passes.
+41. [x] Polish admin plans UI (cards, feature/quota labels, better edit UX).
