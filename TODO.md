@@ -21,4 +21,5 @@
 19. [x] Add docs for Render custom domain + CORS + env vars.
 20. [x] Ensure web uses NEXT_PUBLIC_API_BASE_URL only and pings /api/v1/health with clear missing-env message.
 21. [x] Fixed API base URL join (no duplicate /api/v1) and removed any domain hardcoding.
-22. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS, NEXT_PUBLIC_API_BASE_URL), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust and /health 200.
+22. [x] Added /api/v1/health endpoint and aligned web health check.
+23. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS, NEXT_PUBLIC_API_BASE_URL), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust and /health 200.
