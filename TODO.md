@@ -30,5 +30,5 @@
 28. [x] Fix admin build error (table colSpan typing).
 29. [x] Admin fetches include auth token and handle 401.
 30. [x] Auth foundations (login + admin access).
-31. [x] ChatGPT-friendly README/guide.
+31. [ ] ChatGPT-friendly README/guide (pending after revert).
 32. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL), confirm web/admin works and /api/v1/health passes.
