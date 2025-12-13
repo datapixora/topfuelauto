@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.services import search_service
+from app.core.security import get_optional_user
 from app.schemas import search as search_schema
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
@@ -20,6 +21,7 @@ def search(
     transmission: str | None = None,
     sort: str | None = None,
     db: Session = Depends(get_db),
+    current_user=Depends(get_optional_user),
 ):
     rows = search_service.search_listings(
         db,
@@ -50,4 +52,24 @@ def search(
         )
         for row in rows
     ]
+    try:
+        search_service.log_search_event(
+            db,
+            query=q,
+            filters={
+                "year_min": year_min,
+                "year_max": year_max,
+                "price_min": price_min,
+                "price_max": price_max,
+                "location": location,
+                "condition": condition,
+                "transmission": transmission,
+                "sort": sort,
+            },
+            user_id=getattr(current_user, "id", None) if current_user else None,
+            results_count=len(results),
+            latency_ms=None,
+        )
+    except Exception:
+        pass
     return results

@@ -11,7 +11,7 @@ sys.path.append(str(BASE_DIR / "app"))
 
 from app.core.config import get_settings
 from app.core.database import Base
-from app.models import user, vehicle, listing, price_history, broker_lead, vin_report  # noqa: F401
+from app.models import user, vehicle, listing, price_history, broker_lead, vin_report, search_event  # noqa: F401
 
 settings = get_settings()
 

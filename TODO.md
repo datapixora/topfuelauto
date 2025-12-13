@@ -26,4 +26,5 @@
 24. [x] Fixed health router import and ensured /api/v1/health works.
 25. [x] CORS locked to final domains.
 26. [x] Documented web env vars for migration (API base + site url).
-27. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust and /health 200.
+27. [x] Added admin dashboard UI + pages, admin metrics endpoints, and search event logging.
+28. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL), confirm web/admin works and /api/v1/health passes.

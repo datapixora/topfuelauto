@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.listing import Listing
 from app.models.vehicle import Vehicle
+from app.models.search_event import SearchEvent
 
 
 def search_listings(
@@ -67,3 +68,22 @@ def search_listings(
         query = query.order_by(score_expr.desc().nullslast(), Listing.created_at.desc())
 
     return query.limit(50).all()
+
+
+def log_search_event(
+    db: Session,
+    query: str,
+    filters: dict | None,
+    user_id: int | None,
+    results_count: int | None,
+    latency_ms: int | None,
+):
+    event = SearchEvent(
+        query=query,
+        filters=filters,
+        user_id=user_id,
+        results_count=results_count,
+        latency_ms=latency_ms,
+    )
+    db.add(event)
+    db.commit()
