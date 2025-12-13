@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -11,11 +12,25 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 settings = get_settings()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+
+def _log_backend():
+    try:
+        handler = pwd_context.handler("bcrypt")
+        backend = getattr(handler, "backend", None)
+        logger.info("passlib bcrypt backend loaded", extra={"backend": str(backend)})
+    except Exception:
+        logger.exception("Could not introspect passlib bcrypt backend")
+
+
+_log_backend()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
