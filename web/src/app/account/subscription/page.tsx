@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { API_BASE, authHeaders } from "../../lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
-import JsonViewer from "../../components/JsonViewer";
+import { API_BASE, authHeaders } from "../../../lib/api";
+import JsonViewer from "../../../components/JsonViewer";
 
 export default function SubscriptionPage() {
   const [data, setData] = useState<any>(null);
@@ -39,28 +38,26 @@ export default function SubscriptionPage() {
   }, [router]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Your Subscription</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        {loading && <div className="text-slate-400">Loading...</div>}
-        {error && !loading && <div className="text-red-400">{error}</div>}
-        {data && (
-          <>
-            <div>Plan: {data.plan?.name} ({data.plan?.key})</div>
-            <div>Status: {data.status}</div>
-            <div>
-              Quotas:
-              <JsonViewer value={data.plan?.quotas || {}} />
-            </div>
-            <div>
-              Features:
-              <JsonViewer value={data.plan?.features || {}} />
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4 space-y-3 text-sm">
+      <div className="text-lg font-semibold">Your Subscription</div>
+      {loading && <div className="text-slate-400">Loading...</div>}
+      {error && !loading && <div className="text-red-400">{error}</div>}
+      {data && (
+        <>
+          <div>
+            Plan: {data.plan?.name} ({data.plan?.key})
+          </div>
+          <div>Status: {data.status}</div>
+          <div>
+            Quotas:
+            <JsonViewer value={data.plan?.quotas || {}} />
+          </div>
+          <div>
+            Features:
+            <JsonViewer value={data.plan?.features || {}} />
+          </div>
+        </>
+      )}
+    </div>
   );
 }
