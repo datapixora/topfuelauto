@@ -1,5 +1,5 @@
 databases:
-  - name: topfuelauto-postgres
+  - name: topfuelauto-db
     databaseName: topfuelauto
     user: topfuelauto
     plan: starter
@@ -18,14 +18,16 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: topfuelauto-postgres
+          name: topfuelauto-db
           property: connectionString
       - key: CELERY_BROKER_URL
         fromService:
+          type: redis
           name: topfuelauto-redis
           property: connectionString
       - key: CELERY_RESULT_BACKEND
         fromService:
+          type: redis
           name: topfuelauto-redis
           property: connectionString
       - key: JWT_SECRET
@@ -45,14 +47,16 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: topfuelauto-postgres
+          name: topfuelauto-db
           property: connectionString
       - key: CELERY_BROKER_URL
         fromService:
+          type: redis
           name: topfuelauto-redis
           property: connectionString
       - key: CELERY_RESULT_BACKEND
         fromService:
+          type: redis
           name: topfuelauto-redis
           property: connectionString
       - key: JWT_SECRET
@@ -76,3 +80,6 @@ services:
   - type: redis
     name: topfuelauto-redis
     plan: starter
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: allow all

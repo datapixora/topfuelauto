@@ -10,3 +10,5 @@
 8. [x] Mobile scaffold: Flutter project with auth/search/listing/vin/broker flows using Riverpod + Dio.
 9. [x] README: local setup, seed steps, production hosting notes (Render/Vercel/Cloudflare), domains/subdomains.
 10. [x] Finalize: verify run flow, update TODO, git init/commit, push to GitHub main.
+11. [x] Fix Render blueprint envVar sources and redis ipAllowList.
+12. [ ] Deploy via Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS), run `alembic upgrade head`, add domains api/app.topfuelauto.com.
