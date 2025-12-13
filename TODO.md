@@ -17,5 +17,6 @@
 15. [x] Fix /search suspense CSR bailout.
 16. [x] Pin Render Python version to 3.12 to avoid pydantic-core build.
 17. [x] Add email-validator for EmailStr.
-18. [x] Web homepage renders UI on \"/\" and pings API using NEXT_PUBLIC_API_BASE_URL.
-19. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS, NEXT_PUBLIC_API_BASE_URL), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust and /health 200.
+18. [x] Web homepage renders UI on "/" and pings API using NEXT_PUBLIC_API_BASE_URL.
+19. [x] Add docs for Render custom domain + CORS + env vars.
+20. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS, NEXT_PUBLIC_API_BASE_URL), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm api/worker build without Rust and /health 200.

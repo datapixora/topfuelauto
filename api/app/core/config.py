@@ -23,9 +23,11 @@ class Settings(BaseSettings):
         default_factory=lambda: [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
-            "https://app.topfuelauto.com",
+            "https://topfuelauto.com",
+            "https://www.topfuelauto.com",
+            "https://topfuelauto-web.onrender.com",
         ],
-        alias="CORS_ORIGINS",
+        alias="ALLOWED_ORIGINS",
     )
     nhtsa_api_base: str = Field("https://vpic.nhtsa.dot.gov/api/vehicles", alias="NHTSA_API_BASE")
 
