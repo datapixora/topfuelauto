@@ -59,3 +59,6 @@ Celery worker runs via `docker compose` service `worker` (and Render worker) wit
 ## Required Environment Variables
 - API/Worker: `DATABASE_URL` (from Render Postgres), `CELERY_BROKER_URL` + `CELERY_RESULT_BACKEND` (from Render Redis), `JWT_SECRET`, `CORS_ORIGINS`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `NHTSA_API_BASE` (default provided).
 - Web: `NEXT_PUBLIC_API_BASE_URL` (and `NEXT_PUBLIC_API_BASE` for compatibility), typically `https://api.topfuelauto.com/api/v1`.
+
+## Encoding Note
+Ensure source files are saved as UTF-8 (no UTF-16/BOM from some Windows editors), otherwise Next.js builds on Render will fail on read.
