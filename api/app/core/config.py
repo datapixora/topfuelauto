@@ -25,7 +25,6 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000",
             "https://topfuelauto.com",
             "https://www.topfuelauto.com",
-            "https://topfuelauto-web.onrender.com",
         ],
         alias="ALLOWED_ORIGINS",
     )
