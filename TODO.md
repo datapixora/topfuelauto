@@ -14,4 +14,5 @@
 12. [x] Fix legacy Postgres plan (Render) to supported tier.
 13. [x] Fix Render web build (lockfile).
 14. [x] Fix non-UTF8 web file (search page) for Render build.
-15. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm web build succeeds.
+15. [x] Fix /search suspense CSR bailout.
+16. [ ] Redeploy Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS), run `alembic upgrade head`, add domains api/app.topfuelauto.com, confirm web build succeeds.

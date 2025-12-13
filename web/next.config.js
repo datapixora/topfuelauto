@@ -5,9 +5,6 @@ const apiBase =
   'http://localhost:8000/api/v1';
 
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
   env: {
     NEXT_PUBLIC_API_BASE: apiBase,
     NEXT_PUBLIC_API_BASE_URL: apiBase,
