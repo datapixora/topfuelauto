@@ -1,4 +1,5 @@
-"use client";
+﻿
+ "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE, authHeaders } from "../../../lib/api";
@@ -35,7 +36,7 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-xl max-w-2xl w-full relative">
         <button className="absolute right-3 top-3 text-slate-400" onClick={onClose}>
-          �
+          x
         </button>
         {children}
       </div>
@@ -231,7 +232,7 @@ export default function AdminPlans() {
                     {featureList.map((item) => (
                       <div key={item.key} className="flex items-center gap-2">
                         <span className={`text-lg ${item.enabled ? "text-emerald-400" : "text-slate-500"}`}>
-                          {item.enabled ? "?" : "?"}
+                          {item.enabled ? "✔" : "✕"}
                         </span>
                         <span className="text-slate-200">{item.label}</span>
                       </div>
@@ -246,42 +247,42 @@ export default function AdminPlans() {
                       <div key={item.key} className="flex items-center justify-between gap-2">
                         <span className="text-slate-200">{item.label}</span>
                         <span className="text-slate-100 font-mono">
-                          {item.value === undefined || item.value === null ? "�" : item.value}
+                          {item.value === undefined || item.value === null ? "—" : item.value}
                         </span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {showAdvanced && (
-                  <div className="rounded border border-slate-800 bg-slate-950 px-3 py-2">
-                    <div className="flex items-center justify-between text-xs text-slate-400">
-                      <span>Advanced (JSON)</span>
-                      <button
-                        className="underline"
-                        onClick={() => setAdvancedOpen({ ...advancedOpen, [plan.id]: !isAdvancedOpen })}
-                      >
-                        {isAdvancedOpen ? "Hide" : "Show"}
-                      </button>
-                    </div>
-                    {isAdvancedOpen && (
-                      <div className="mt-2 space-y-2 text-xs">
-                        {unknownFeatures.length > 0 && (
-                          <div>
-                            <div className="text-slate-400">Other features</div>
-                            <JsonViewer value={Object.fromEntries(unknownFeatures)} />
-                          </div>
-                        )}
-                        {unknownQuotas.length > 0 && (
-                          <div>
-                            <div className="text-slate-400">Other quotas</div>
-                            <JsonViewer value={Object.fromEntries(unknownQuotas)} />
-                          </div>
-                        )}
+                  {showAdvanced && (
+                    <div className="rounded border border-slate-800 bg-slate-950 px-3 py-2">
+                      <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span>Advanced (JSON)</span>
+                        <button
+                          className="underline"
+                          onClick={() => setAdvancedOpen({ ...advancedOpen, [plan.id]: !isAdvancedOpen })}
+                        >
+                          {isAdvancedOpen ? "Hide" : "Show"}
+                        </button>
                       </div>
-                    )}
-                  </div>
-                )}
+                      {isAdvancedOpen && (
+                        <div className="mt-2 space-y-2 text-xs">
+                          {unknownFeatures.length > 0 && (
+                            <div>
+                              <div className="text-slate-400">Other features</div>
+                              <JsonViewer value={Object.fromEntries(unknownFeatures)} />
+                            </div>
+                          )}
+                          {unknownQuotas.length > 0 && (
+                            <div>
+                              <div className="text-slate-400">Other quotas</div>
+                              <JsonViewer value={Object.fromEntries(unknownQuotas)} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                 <div className="flex justify-end">
                   <Button variant="ghost" onClick={() => openEdit(plan)}>
@@ -330,7 +331,7 @@ export default function AdminPlans() {
                 value={form.features}
                 onChange={(e) => setForm({ ...form, features: e.target.value })}
               />
-              <div className="text-xs text-slate-500">Example: {`{ "vin_history": true }`}</div>
+              <div className="text-xs text-slate-500">Example: {'{ "vin_history": true }'}</div>
             </label>
             <label className="block space-y-1">
               <div className="text-slate-200">Quotas (JSON object)</div>
@@ -339,7 +340,7 @@ export default function AdminPlans() {
                 value={form.quotas}
                 onChange={(e) => setForm({ ...form, quotas: e.target.value })}
               />
-              <div className="text-xs text-slate-500">Example: {`{ "searches_per_day": 100 }`}</div>
+              <div className="text-xs text-slate-500">Example: {'{ "searches_per_day": 100 }'}</div>
             </label>
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" onClick={() => setEditId(null)} disabled={saving}>
