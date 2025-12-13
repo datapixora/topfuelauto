@@ -11,4 +11,5 @@
 9. [x] README: local setup, seed steps, production hosting notes (Render/Vercel/Cloudflare), domains/subdomains.
 10. [x] Finalize: verify run flow, update TODO, git init/commit, push to GitHub main.
 11. [x] Fix Render blueprint envVar sources and redis ipAllowList.
-12. [ ] Deploy via Render Blueprint, set env vars (JWT_SECRET, CORS_ORIGINS), run `alembic upgrade head`, add domains api/app.topfuelauto.com.
+12. [x] Fix legacy Postgres plan (Render) to supported tier.
+13. [ ] Retry Render Blueprint deploy, set env vars (JWT_SECRET, CORS_ORIGINS), run `alembic upgrade head`, add domains api/app.topfuelauto.com.
