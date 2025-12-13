@@ -34,4 +34,5 @@
 32. [x] Login now returns 401 (not 500) on bad credentials.
 33. [x] Admin bootstrap user script added.
 34. [x] Fix SQLAlchemy model registry import (BrokerLead) for scripts.
-35. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL, ADMIN_EMAIL, ADMIN_PASSWORD), confirm web/admin works and /api/v1/health passes.
+35. [x] Fix Alembic revision chain (0001_init present and referenced by 0002_admin).
+36. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL, ADMIN_EMAIL, ADMIN_PASSWORD), confirm web/admin works and /api/v1/health passes.
