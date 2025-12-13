@@ -9,4 +9,4 @@
 7. [x] Docker Compose: postgres, redis, api, worker, web wired for local run with env vars and volumes.
 8. [x] Mobile scaffold: Flutter project with auth/search/listing/vin/broker flows using Riverpod + Dio.
 9. [x] README: local setup, seed steps, production hosting notes (Render/Vercel/Cloudflare), domains/subdomains.
-10. [ ] Finalize: verify run flow, update TODO, git init/commit, push to GitHub main.
+10. [x] Finalize: verify run flow, update TODO, git init/commit, push to GitHub main.
