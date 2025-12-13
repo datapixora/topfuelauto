@@ -50,6 +50,14 @@ Search-first marketplace MVP across web, API, and mobile.
 - Web stores JWT in localStorage for MVP (documented risk; move to httpOnly cookies later)
 - Mobile stores token in secure storage when available
 
+## Admin Access
+- Log in at `/login` (or `/account`) to obtain a JWT.
+- Promote the user to admin in Postgres (Render shell → `cd api`):
+  ```sql
+  UPDATE users SET is_admin = true WHERE email = 'admin@example.com';
+  ```
+- Re-login so the stored token is fresh, then open `/admin`.
+
 ## Migrations
 Run `alembic upgrade head` after containers start (local) or from a Render shell on the api service (`cd api && alembic upgrade head`). Migration enables `unaccent` and `pg_trgm` and creates all tables.
 
