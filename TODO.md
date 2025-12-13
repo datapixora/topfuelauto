@@ -28,4 +28,5 @@
 26. [x] Documented web env vars for migration (API base + site url).
 27. [x] Added admin dashboard UI + pages, admin metrics endpoints, and search event logging.
 28. [x] Fix admin build error (table colSpan typing).
-29. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL), confirm web/admin works and /api/v1/health passes.
+29. [x] Admin fetches include auth token and handle 401.
+30. [ ] Redeploy Render Blueprint, run migrations (including 0002_admin), set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL), confirm web/admin works and /api/v1/health passes.

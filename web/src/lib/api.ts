@@ -26,7 +26,7 @@ const url = (path: string) => {
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 };
 
-const authHeaders = () => {
+export const authHeaders = () => {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };

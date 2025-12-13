@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { API_BASE } from "../../lib/api";
+import { API_BASE, authHeaders } from "../../lib/api";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { cn } from "../../lib/utils";
 
@@ -24,7 +24,10 @@ export default function AdminDashboard() {
   useEffect(() => {
     const run = async () => {
       try {
-        const res = await fetch(`${API_BASE}/admin/metrics/overview`, { credentials: "include" });
+        const res = await fetch(`${API_BASE}/admin/metrics/overview`, {
+          credentials: "include",
+          headers: { ...authHeaders() },
+        });
         if (!res.ok) throw new Error("Failed to load metrics");
         const json = await res.json();
         setOverview(json);

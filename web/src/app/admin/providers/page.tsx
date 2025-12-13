@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
-import { API_BASE } from "../../../lib/api";
+import { API_BASE, authHeaders } from "../../../lib/api";
 
 export default function AdminProviders() {
   const [providers, setProviders] = useState<any[]>([]);
@@ -13,7 +13,10 @@ export default function AdminProviders() {
   useEffect(() => {
     const run = async () => {
       try {
-        const res = await fetch(`${API_BASE}/admin/providers/status`, { credentials: "include" });
+        const res = await fetch(`${API_BASE}/admin/providers/status`, {
+          credentials: "include",
+          headers: { ...authHeaders() },
+        });
         if (!res.ok) throw new Error("Failed to load providers");
         const json = await res.json();
         setProviders(json.providers || []);

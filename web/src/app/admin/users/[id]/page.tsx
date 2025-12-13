@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
-import { API_BASE } from "../../../../lib/api";
+import { API_BASE, authHeaders } from "../../../../lib/api";
 
 export default function AdminUserDetail() {
   const params = useParams();
@@ -15,7 +15,10 @@ export default function AdminUserDetail() {
     if (!id) return;
     const run = async () => {
       try {
-        const res = await fetch(`${API_BASE}/admin/users/${id}`, { credentials: "include" });
+        const res = await fetch(`${API_BASE}/admin/users/${id}`, {
+          credentials: "include",
+          headers: { ...authHeaders() },
+        });
         if (!res.ok) throw new Error("Failed to load user");
         const json = await res.json();
         setUser(json);
