@@ -1,10 +1,30 @@
 import { getToken } from "./auth";
 import { Listing, SearchResult, TokenResponse } from "./types";
 
-const API_BASE =
+const RAW_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_BASE ||
-  "http://localhost:8000/api/v1";
+  "";
+
+const normalizeBase = (base: string) => {
+  if (!base) return "";
+  const trimmed = base.replace(/\/+$/, "");
+  // If base already ends with /api/v1, keep it; else append once.
+  if (trimmed.endsWith("/api/v1")) return trimmed;
+  return `${trimmed}/api/v1`;
+};
+
+export const API_BASE = normalizeBase(RAW_BASE);
+
+const requireBase = () => {
+  if (!API_BASE) throw new Error("NEXT_PUBLIC_API_BASE_URL is not set");
+  return API_BASE;
+};
+
+const url = (path: string) => {
+  const base = requireBase();
+  return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+};
 
 const authHeaders = () => {
   const token = getToken();
@@ -16,19 +36,19 @@ export async function searchVehicles(params: Record<string, string | number | un
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== "") qs.append(k, String(v));
   });
-  const res = await fetch(`${API_BASE}/search?${qs.toString()}`);
+  const res = await fetch(url(`/search?${qs.toString()}`));
   if (!res.ok) throw new Error("Search failed");
   return res.json();
 }
 
 export async function getListing(id: string | number): Promise<Listing> {
-  const res = await fetch(`${API_BASE}/listings/${id}`);
+  const res = await fetch(url(`/listings/${id}`));
   if (!res.ok) throw new Error("Listing not found");
   return res.json();
 }
 
 export async function login(email: string, password: string): Promise<TokenResponse> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await fetch(url("/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -38,7 +58,7 @@ export async function login(email: string, password: string): Promise<TokenRespo
 }
 
 export async function signup(email: string, password: string): Promise<TokenResponse> {
-  const res = await fetch(`${API_BASE}/auth/signup`, {
+  const res = await fetch(url("/auth/signup"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -54,7 +74,7 @@ export async function requestBid(payload: {
   full_name: string;
   phone: string;
 }) {
-  const res = await fetch(`${API_BASE}/broker/request-bid`, {
+  const res = await fetch(url("/broker/request-bid"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(payload),
@@ -64,7 +84,7 @@ export async function requestBid(payload: {
 }
 
 export async function decodeVin(vin: string) {
-  const res = await fetch(`${API_BASE}/vin/decode?vin=${vin}`);
+  const res = await fetch(url(`/vin/decode?vin=${encodeURIComponent(vin)}`));
   if (!res.ok) throw new Error("VIN decode failed");
   return res.json();
 }

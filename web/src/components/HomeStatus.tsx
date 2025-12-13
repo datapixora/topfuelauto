@@ -10,7 +10,9 @@ export default function HomeStatus() {
 
   const healthUrl = useMemo(() => {
     if (!apiBase) return null;
-    return apiBase.replace(/\/+$/, "") + "/api/v1/health";
+    const trimmed = apiBase.replace(/\/+$/, "");
+    if (trimmed.endsWith("/api/v1")) return `${trimmed}/health`;
+    return `${trimmed}/api/v1/health`;
   }, [apiBase]);
 
   useEffect(() => {
@@ -34,8 +36,12 @@ export default function HomeStatus() {
   return (
     <div className="card flex flex-col gap-2">
       <div className="font-semibold">Service status</div>
-      <div className="text-sm text-slate-300">API base: <code className="text-brand-accent">{apiBase || "unset"}</code></div>
-      <div className="text-sm text-slate-300">Health URL: <code className="text-brand-accent">{healthUrl || "unavailable"}</code></div>
+      <div className="text-sm text-slate-300">
+        API base: <code className="text-brand-accent">{apiBase || "unset"}</code>
+      </div>
+      <div className="text-sm text-slate-300">
+        Health URL: <code className="text-brand-accent">{healthUrl || "unavailable"}</code>
+      </div>
       <div className="text-sm">
         State:{" "}
         <span className="font-semibold">
