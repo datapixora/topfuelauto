@@ -19,7 +19,8 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    """Legacy root-level health for load balancers; prefer /api/v1/health."""
+    return {"ok": True}
 
 
 @app.get("/")
