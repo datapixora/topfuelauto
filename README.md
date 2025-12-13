@@ -12,16 +12,19 @@ Search-first marketplace MVP across web, API, and mobile.
 1) `cp .env.example .env`
 2) `docker compose up --build`
 3) In another shell: `docker compose exec api alembic upgrade head`
-4) Seed listings: `docker compose exec api python scripts/seed_listings.py`
-5) Visit web at http://localhost:3000 and search "Nissan GT-R 2005" (API at http://localhost:8000)
+4) Seed plans (idempotent): `docker compose exec api python scripts/seed_plans.py`
+5) Seed listings: `docker compose exec api python scripts/seed_listings.py`
+6) Visit web at http://localhost:3000 and search "Nissan GT-R 2005" (API at http://localhost:8000)
 
 ## Render Deployment (blueprint)
 1) Connect the repo on Render as a Blueprint and point to `render.yaml` (root).
 2) Deploy; Render provisions Postgres + Redis + three services (api, worker, web).
 3) In the Render Dashboard, set a single `JWT_SECRET` value and confirm `CORS_ORIGINS=https://app.topfuelauto.com,http://localhost:3000` on the API service (set the same secret on the worker).
-4) After first deploy, open a shell on the **api** service and run `cd api && alembic upgrade head` to apply migrations.
-5) (Optional) Seed sample data from the same shell: `python scripts/seed_listings.py`.
-6) Attach custom domains: `api.topfuelauto.com` to the api service, `app.topfuelauto.com` to the web service. Ensure HTTPS certs issue, then keep CORS origins aligned with those domains.
+4) After first deploy, open a shell on the **api** service and run:
+   - `cd api && alembic upgrade head`
+   - `PYTHONPATH=. python scripts/seed_plans.py` (idempotent defaults: free/pro/ultimate)
+   - `python scripts/seed_listings.py` (optional sample data)
+5) Attach custom domains: `api.topfuelauto.com` to the api service, `app.topfuelauto.com` to the web service. Ensure HTTPS certs issue, then keep CORS origins aligned with those domains.
 
 ## API Notes
 - Health: `GET /health`
