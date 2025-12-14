@@ -11,8 +11,10 @@ from app.models.broker_lead import BrokerLead
 from app.models.listing import Listing
 from app.models.plan import Plan
 from app.models.admin_action_log import AdminActionLog
+from app.models.daily_usage import DailyUsage
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import desc
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -350,6 +352,97 @@ def update_user_plan(
         raise HTTPException(status_code=400, detail="Could not update plan")
     db.refresh(user)
     return {"id": user.id, "email": user.email, "is_pro": user.is_pro, "plan_key": plan.key, "plan_name": plan.name}
+
+
+@router.get("/users/{user_id}/detail")
+def admin_user_detail_full(user_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # plan resolution
+    plan_key = "pro" if user.is_pro else "free"
+    plan = db.query(Plan).filter(Plan.key == plan_key, Plan.is_active.is_(True)).first()
+    plan_limit = plan.searches_per_day if plan and plan.searches_per_day is not None else None
+    if plan_limit is None and plan_key == "free":
+        plan_limit = 5
+
+    usage_today = usage_service.get_or_create_today_usage(db, user.id)
+    remaining = None
+    if plan_limit is not None:
+        remaining = max(plan_limit - usage_today.search_count, 0)
+    reset_at = (
+        datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        if plan_limit is not None
+        else None
+    )
+
+    since_7d = datetime.utcnow().date() - timedelta(days=6)
+    usage_rows = (
+        db.query(DailyUsage.usage_date, func.sum(DailyUsage.search_count))
+        .filter(DailyUsage.user_id == user.id, DailyUsage.usage_date >= since_7d)
+        .group_by(DailyUsage.usage_date)
+        .order_by(DailyUsage.usage_date)
+        .all()
+    )
+    usage_series = [{"date": d.isoformat(), "search_count": int(c or 0)} for d, c in usage_rows]
+
+    recent_searches = (
+        db.query(SearchEvent)
+        .filter(SearchEvent.user_id == user.id)
+        .order_by(SearchEvent.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    searches_out = [
+        {
+            "id": s.id,
+            "query": s.query_normalized or s.query_raw,
+            "result_count": s.result_count,
+            "error_code": s.error_code,
+            "status": s.status,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        }
+        for s in recent_searches
+    ]
+
+    action_logs = (
+        db.query(AdminActionLog)
+        .filter(AdminActionLog.target_user_id == user.id)
+        .order_by(desc(AdminActionLog.created_at))
+        .limit(50)
+        .all()
+    )
+    actions_out = [
+        {
+            "action": a.action,
+            "payload": a.payload_json,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "admin_user_id": a.admin_user_id,
+        }
+        for a in action_logs
+    ]
+
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "is_pro": user.is_pro,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "plan": {"id": plan.id if plan else None, "name": plan.name if plan else plan_key, "searches_per_day": plan_limit},
+        "quota": {
+            "limit": plan_limit,
+            "used": usage_today.search_count,
+            "remaining": remaining,
+            "reset_at": reset_at.isoformat() if reset_at else None,
+        },
+        "usage_7d": usage_series,
+        "recent_searches": searches_out,
+        "admin_actions": actions_out,
+    }
 
 
 @router.get("/users/{user_id}")

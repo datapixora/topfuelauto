@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
+import Link from "next/link";
 import { apiGet, authHeaders, API_BASE } from "../../../lib/api";
 
 type UserRow = {
@@ -110,7 +111,11 @@ export default function AdminUsers() {
             {users.map((u) => (
               <TR key={u.id}>
                 <TD>{u.id}</TD>
-                <TD>{u.email}</TD>
+                <TD>
+                  <Link href={`/admin/users/${u.id}`} className="text-brand-accent hover:underline">
+                    {u.email}
+                  </Link>
+                </TD>
                 <TD>
                   <span
                     className={`rounded-full px-2 py-1 text-xs ${
