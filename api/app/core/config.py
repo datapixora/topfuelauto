@@ -8,8 +8,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "TopFuel Auto API"
     secret_key: str = Field("change-me", alias="JWT_SECRET")
+    legacy_secret_key: str | None = Field(default=None, alias="SECRET_KEY")
+    app_secret_key: str | None = Field(default=None, alias="APP_SECRET")
     access_token_expire_minutes: int = 60
     algorithm: str = "HS256"
+    token_expires_seconds: int | None = None
 
     database_url: str = Field(
         "postgresql+psycopg2://topfuel:topfuel@localhost:5432/topfuel",
@@ -51,6 +54,16 @@ class Settings(BaseSettings):
             and self.marketcheck_api_key
             and self.marketcheck_api_secret
         )
+
+    @property
+    def jwt_secret(self) -> str:
+        if self.secret_key and self.secret_key != "change-me":
+            return self.secret_key
+        if self.legacy_secret_key:
+            return self.legacy_secret_key
+        if self.app_secret_key:
+            return self.app_secret_key
+        return self.secret_key
 
 
 @lru_cache

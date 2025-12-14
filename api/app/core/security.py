@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
+from jose import jwt, JWTError, ExpiredSignatureError, JWTClaimsError
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
@@ -43,18 +43,26 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
+    exp_seconds = settings.token_expires_seconds or settings.access_token_expire_minutes * 60
+    expire = datetime.utcnow() + (expires_delta or timedelta(seconds=exp_seconds))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+    encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.algorithm)
     return encoded_jwt
 
 
 def decode_access_token(token: str) -> Optional[dict]:
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.algorithm])
         return payload
+    except ExpiredSignatureError:
+        logger.info("JWT verification failed", extra={"reason": "expired"})
+    except JWTClaimsError:
+        logger.info("JWT verification failed", extra={"reason": "invalid_payload"})
     except JWTError:
-        return None
+        logger.info("JWT verification failed", extra={"reason": "invalid_signature"})
+    except Exception:
+        logger.exception("JWT verification failed", extra={"reason": "unknown"})
+    return None
 
 
 def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
@@ -65,12 +73,15 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
     )
     payload = decode_access_token(token)
     if payload is None:
+        logger.info("JWT verification failed", extra={"reason": "missing_or_invalid"})
         raise credentials_exception
     user_id = payload.get("sub")
     if user_id is None:
+        logger.info("JWT verification failed", extra={"reason": "missing_sub"})
         raise credentials_exception
     user = db.get(User, int(user_id))
     if user is None:
+        logger.info("JWT verification failed", extra={"reason": "user_not_found"})
         raise credentials_exception
     return user
 

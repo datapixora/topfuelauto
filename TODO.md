@@ -54,6 +54,7 @@
 52. [ ] Add per-user usage tracking and plan enforcement for search.
 53. [ ] Add admin analytics charts for search usage.
 - [x] Fix admin API base URL for analytics (use NEXT_PUBLIC_API_BASE_URL).
+- [x] Fix JWT verify consistency (admin 401) and add /api/v1/auth/me.
 
 ## Analytics Milestones
 - [x] Milestone 1: Harden SearchEvent logging (fields, caching/rate-limit signals, safe errors).
