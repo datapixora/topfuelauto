@@ -53,3 +53,8 @@
 51. [x] Wire /search page to MarketCheck with soft-gate and pagination.
 52. [ ] Add per-user usage tracking and plan enforcement for search.
 53. [ ] Add admin analytics charts for search usage.
+
+## Analytics Milestones
+- [x] Milestone 1: Harden SearchEvent logging (fields, caching/rate-limit signals, safe errors).
+- [ ] Milestone 2: Admin analytics endpoints (overview, timeseries, top queries, zero-results, provider health).
+- [ ] Milestone 3: Admin analytics UI (cards, charts, tables).

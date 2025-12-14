@@ -1,8 +1,9 @@
 import time
+import uuid
 from collections import defaultdict
 from typing import Dict, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -58,7 +59,6 @@ def _check_rate_limit(ip: str):
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW_SECONDS
     events = _rate_limit[ip]
-    # prune
     _rate_limit[ip] = [t for t in events if t >= window_start]
     if len(_rate_limit[ip]) >= RATE_LIMIT_MAX_REQUESTS:
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
@@ -67,6 +67,7 @@ def _check_rate_limit(ip: str):
 
 @router.get("/search", response_model=search_schema.SearchResponse)
 def search(
+    response: Response,
     request: Request,
     q: str = Query(..., min_length=1),
     make: str | None = None,
@@ -82,8 +83,48 @@ def search(
     db: Session = Depends(get_db),
     current_user=Depends(get_optional_user),
 ):
+    request_id = str(uuid.uuid4())
+    response.headers["X-Request-Id"] = request_id
+
     client_ip = request.client.host if request.client else "unknown"
-    _check_rate_limit(client_ip)
+    session_id = request.headers.get("X-Session-Id")
+    session_id = session_id[:64] if session_id else None
+    query_raw = q
+    query_normalized = " ".join(q.strip().lower().split())
+
+    filters = {
+        "make": make,
+        "model": model,
+        "year_min": year_min,
+        "year_max": year_max,
+        "price_min": price_min,
+        "price_max": price_max,
+        "location": location,
+        "sort": sort,
+    }
+
+    try:
+        _check_rate_limit(client_ip)
+    except HTTPException:
+        try:
+            search_service.log_search_event(
+                db,
+                user_id=getattr(current_user, "id", None) if current_user else None,
+                session_id=session_id,
+                query_raw=query_raw,
+                query_normalized=query_normalized,
+                filters=filters,
+                providers=[],
+                result_count=0,
+                latency_ms=0,
+                cache_hit=False,
+                rate_limited=True,
+                status="error",
+                error_code="rate_limited",
+            )
+        finally:
+            response.headers["X-Cache"] = "MISS"
+        raise
 
     cache_key = _make_cache_key(
         client_ip,
@@ -102,38 +143,73 @@ def search(
     cached = _search_cache.get(cache_key)
     now = time.time()
     if cached and now - cached[0] <= CACHE_TTL_SECONDS:
+        response.headers["X-Cache"] = "HIT"
+        try:
+            search_service.log_search_event(
+                db,
+                user_id=getattr(current_user, "id", None) if current_user else None,
+                session_id=session_id,
+                query_raw=query_raw,
+                query_normalized=query_normalized,
+                filters=filters,
+                providers=[s.get("name") for s in cached[1].sources if s],
+                result_count=cached[1].total,
+                latency_ms=None,
+                cache_hit=True,
+                rate_limited=False,
+                status="ok",
+                error_code=None,
+            )
+        except Exception:
+            pass
         return cached[1]
 
     settings = get_settings()
     providers = get_active_providers(settings)
 
-    filters = {
-        "make": make,
-        "model": model,
-        "year_min": year_min,
-        "year_max": year_max,
-        "price_min": price_min,
-        "price_max": price_max,
-        "location": location,
-        "sort": sort,
-    }
-
     items = []
     total = 0
     sources = []
+    start_ts = time.time()
+    status = "ok"
+    error_code = None
 
-    for provider in providers:
-        provider_items, provider_total, meta = provider.search_listings(
-            query=q,
-            filters=filters,
-            page=page,
-            page_size=page_size,
-        )
-        items.extend(provider_items)
-        total += provider_total
-        sources.append(meta)
+    try:
+        for provider in providers:
+            provider_items, provider_total, meta = provider.search_listings(
+                query=q,
+                filters=filters,
+                page=page,
+                page_size=page_size,
+            )
+            items.extend(provider_items)
+            total += provider_total
+            sources.append(meta)
+    except Exception:
+        status = "error"
+        error_code = "provider_error"
+        response.headers["X-Cache"] = "MISS"
+        try:
+            search_service.log_search_event(
+                db,
+                user_id=getattr(current_user, "id", None) if current_user else None,
+                session_id=session_id,
+                query_raw=query_raw,
+                query_normalized=query_normalized,
+                filters=filters,
+                providers=[p.name for p in providers],
+                result_count=0,
+                latency_ms=None,
+                cache_hit=False,
+                rate_limited=False,
+                status=status,
+                error_code=error_code,
+            )
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail="Search unavailable")
 
-    response = search_schema.SearchResponse(
+    response_body = search_schema.SearchResponse(
         items=items,
         total=total,
         page=page,
@@ -141,18 +217,28 @@ def search(
         sources=sources,
     )
 
-    _search_cache[cache_key] = (now, response)
+    latency_ms = int((time.time() - start_ts) * 1000)
+    response.headers["X-Cache"] = "MISS"
+
+    _search_cache[cache_key] = (now, response_body)
 
     try:
         search_service.log_search_event(
             db,
-            query=q,
-            filters={**filters, "providers": [p.name for p in providers]},
             user_id=getattr(current_user, "id", None) if current_user else None,
-            results_count=total,
-            latency_ms=None,
+            session_id=session_id,
+            query_raw=query_raw,
+            query_normalized=query_normalized,
+            filters=filters,
+            providers=[p.name for p in providers],
+            result_count=total,
+            latency_ms=latency_ms,
+            cache_hit=False,
+            rate_limited=False,
+            status=status,
+            error_code=error_code,
         )
     except Exception:
         pass
 
-    return response
+    return response_body

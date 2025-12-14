@@ -20,7 +20,7 @@ def search_listings(
 ):
     similarity = func.greatest(
         func.similarity(func.unaccent(Listing.title), func.unaccent(q)),
-        func.similarity(func.unaccent(Vehicle.make + ' ' + Vehicle.model), func.unaccent(q)),
+        func.similarity(func.unaccent(Vehicle.make + " " + Vehicle.model), func.unaccent(q)),
     )
 
     ts_rank = func.ts_rank(Listing.search_tsv, func.plainto_tsquery(q))
@@ -72,18 +72,33 @@ def search_listings(
 
 def log_search_event(
     db: Session,
-    query: str,
-    filters: dict | None,
+    *,
     user_id: int | None,
-    results_count: int | None,
+    session_id: str | None,
+    query_raw: str | None,
+    query_normalized: str | None,
+    filters: dict | None,
+    providers: list[str] | None,
+    result_count: int | None,
     latency_ms: int | None,
+    cache_hit: bool,
+    rate_limited: bool,
+    status: str,
+    error_code: str | None,
 ):
     event = SearchEvent(
-        query=query,
-        filters=filters,
         user_id=user_id,
-        results_count=results_count,
+        session_id=session_id,
+        query_raw=query_raw,
+        query_normalized=query_normalized,
+        filters_json=filters,
+        providers=providers,
+        result_count=result_count,
         latency_ms=latency_ms,
+        cache_hit=cache_hit,
+        rate_limited=rate_limited,
+        status=status,
+        error_code=error_code,
     )
     db.add(event)
     db.commit()
