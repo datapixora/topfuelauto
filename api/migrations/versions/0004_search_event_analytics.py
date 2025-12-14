@@ -8,6 +8,7 @@ Create Date: 2025-12-14 12:50:00
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision = "0004_search_event_analytics"
@@ -17,32 +18,46 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("search_events", sa.Column("session_id", sa.String(length=64), nullable=True))
-    op.add_column("search_events", sa.Column("query_raw", sa.String(length=255), nullable=True))
-    op.add_column("search_events", sa.Column("query_normalized", sa.String(length=255), nullable=True))
-    op.add_column("search_events", sa.Column("filters_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
-    op.add_column("search_events", sa.Column("providers", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
-    op.add_column("search_events", sa.Column("result_count", sa.Integer(), nullable=True))
-    op.add_column(
-        "search_events",
+    bind = op.get_bind()
+    insp = inspect(bind)
+
+    existing_cols = {col["name"] for col in insp.get_columns("search_events")}
+    existing_indexes = {ix["name"] for ix in insp.get_indexes("search_events")}
+
+    def add_col(name: str, column: sa.Column):
+        if name not in existing_cols:
+            op.add_column("search_events", column)
+
+    add_col("session_id", sa.Column("session_id", sa.String(length=64), nullable=True))
+    add_col("query_raw", sa.Column("query_raw", sa.String(length=255), nullable=True))
+    add_col("query_normalized", sa.Column("query_normalized", sa.String(length=255), nullable=True))
+    add_col("filters_json", sa.Column("filters_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
+    add_col("providers", sa.Column("providers", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
+    add_col("result_count", sa.Column("result_count", sa.Integer(), nullable=True))
+    add_col(
+        "cache_hit",
         sa.Column("cache_hit", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
-    op.add_column(
-        "search_events",
+    add_col(
+        "rate_limited",
         sa.Column("rate_limited", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
-    op.add_column(
-        "search_events",
+    add_col(
+        "status",
         sa.Column("status", sa.String(length=16), nullable=False, server_default="ok"),
     )
-    op.add_column("search_events", sa.Column("error_code", sa.String(length=50), nullable=True))
+    add_col("error_code", sa.Column("error_code", sa.String(length=50), nullable=True))
 
-    op.create_index("ix_search_events_created_at", "search_events", ["created_at"], unique=False)
-    op.create_index("ix_search_events_query_normalized", "search_events", ["query_normalized"], unique=False)
-    op.create_index("ix_search_events_session_id", "search_events", ["session_id"], unique=False)
-    op.create_index(
-        "ix_search_events_ts_querynorm", "search_events", ["created_at", "query_normalized"], unique=False
-    )
+    if "ix_search_events_created_at" not in existing_indexes:
+        op.create_index("ix_search_events_created_at", "search_events", ["created_at"], unique=False)
+    if "ix_search_events_query_normalized" not in existing_indexes:
+        op.create_index("ix_search_events_query_normalized", "search_events", ["query_normalized"], unique=False)
+    if "ix_search_events_session_id" not in existing_indexes:
+        op.create_index("ix_search_events_session_id", "search_events", ["session_id"], unique=False)
+    if "ix_search_events_ts_querynorm" not in existing_indexes:
+        op.create_index(
+            "ix_search_events_ts_querynorm", "search_events", ["created_at", "query_normalized"], unique=False
+        )
 
 
 def downgrade() -> None:
