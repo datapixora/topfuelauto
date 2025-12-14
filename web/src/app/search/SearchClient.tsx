@@ -39,7 +39,7 @@ export default function SearchClient() {
       <div className="md:col-span-3 space-y-4">
         <div className="card flex items-center justify-between">
           <div className="font-semibold">Search results for "{query || "..."}"</div>
-          {loading && <div className="text-xs text-slate-400">Loading…</div>}
+          {loading && <div className="text-xs text-slate-400">Loading...</div>}
         </div>
         {results.length === 0 && !loading && (
           <div className="text-slate-400">No results yet. Try searching for "Nissan GT-R 2005".</div>

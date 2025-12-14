@@ -1,10 +1,7 @@
 import { getToken } from "./auth";
 import { Listing, SearchResult, TokenResponse } from "./types";
 
-const RAW_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_BASE ||
-  "";
+const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
 const normalizeBase = (base: string) => {
   if (!base) return "";
@@ -17,7 +14,9 @@ const normalizeBase = (base: string) => {
 export const API_BASE = normalizeBase(RAW_BASE);
 
 const requireBase = () => {
-  if (!API_BASE) throw new Error("NEXT_PUBLIC_API_BASE_URL is not set");
+  if (!API_BASE) {
+    throw new Error("NEXT_PUBLIC_API_BASE_URL is missing. Set it to your API origin (e.g. https://api.example.com).");
+  }
   return API_BASE;
 };
 
@@ -48,13 +47,36 @@ export async function getListing(id: string | number): Promise<Listing> {
 }
 
 export async function login(email: string, password: string): Promise<TokenResponse> {
-  const res = await fetch(url("/auth/login"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) throw new Error("Login failed");
-  return res.json();
+  const payload = JSON.stringify({ email, password });
+  const headers = { "Content-Type": "application/json" };
+  const candidates = ["/auth/login", "/auth/token"];
+
+  let lastError: string | undefined;
+
+  for (const path of candidates) {
+    const res = await fetch(url(path), {
+      method: "POST",
+      headers,
+      body: payload,
+    });
+
+    if (res.ok) return res.json();
+
+    const detail = await res
+      .json()
+      .then((data) => (typeof data?.detail === "string" ? data.detail : null))
+      .catch(() => null);
+
+    lastError = detail || `Login failed with status ${res.status}`;
+
+    if (res.status === 404) {
+      continue;
+    } else {
+      break;
+    }
+  }
+
+  throw new Error(lastError || "Login failed");
 }
 
 export async function signup(email: string, password: string): Promise<TokenResponse> {

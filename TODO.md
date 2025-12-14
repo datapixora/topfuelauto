@@ -41,3 +41,9 @@
 39. [x] Replace temporary /api/v1/admin/plans with DB-backed model, migration, and seed script.
 40. [ ] Redeploy Render Blueprint, run `alembic upgrade head` and `python scripts/seed_plans.py`, set env vars (JWT_SECRET, ALLOWED_ORIGINS, NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_SITE_URL, ADMIN_EMAIL, ADMIN_PASSWORD), confirm web/admin works and /api/v1/health passes.
 41. [x] Polish admin plans UI (cards, feature/quota labels, better edit UX).
+42. [x] Rebuilt marketing homepage with hero, search preview UI, value props, FAQ, and navigation with login modal plus dashboard/signup placeholders.
+43. [x] Added shared login form/dialog tied to updated auth client storing token in `tfa_token` and redirecting to /search.
+44. [ ] Connect /search to backend for live results and filters.
+45. [ ] Implement full pricing page and Stripe plan selection.
+46. [ ] Implement real signup flow (UI + API).
+47. [ ] Add admin dashboard analytics visualizations.
