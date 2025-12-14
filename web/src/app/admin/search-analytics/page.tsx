@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "../../../components/ui/table";
-import { API_BASE, authHeaders } from "../../../lib/api";
+import { apiGet } from "../../../lib/api";
 
 export default function AdminSearchAnalytics() {
   const [top, setTop] = useState<any[]>([]);
@@ -12,12 +12,7 @@ export default function AdminSearchAnalytics() {
   useEffect(() => {
     const run = async () => {
       try {
-        const res = await fetch(`${API_BASE}/admin/metrics/searches`, {
-          credentials: "include",
-          headers: { ...authHeaders() },
-        });
-        if (!res.ok) throw new Error("Failed to load search metrics");
-        const json = await res.json();
+        const json = await apiGet<{ top_queries: any[] }>("/admin/metrics/searches");
         setTop(json.top_queries || []);
       } catch (e: any) {
         setError(e.message);

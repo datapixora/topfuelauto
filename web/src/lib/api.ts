@@ -120,3 +120,13 @@ export async function decodeVin(vin: string) {
   if (!res.ok) throw new Error("VIN decode failed");
   return res.json();
 }
+
+export async function apiGet<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const absolute = path.startsWith("http") ? path : url(path);
+  const res = await fetch(absolute, {
+    ...init,
+    headers: { ...(init?.headers || {}), ...authHeaders() },
+  });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return res.json();
+}

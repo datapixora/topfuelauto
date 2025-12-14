@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "../../../components/ui/table";
-import { API_BASE, authHeaders } from "../../../lib/api";
+import { apiGet } from "../../../lib/api";
 
 type UserRow = { id: number; email: string; is_pro: boolean; is_admin: boolean };
 
@@ -14,12 +14,7 @@ export default function AdminUsers() {
   useEffect(() => {
     const run = async () => {
       try {
-        const res = await fetch(`${API_BASE}/admin/metrics/users`, {
-          credentials: "include",
-          headers: { ...authHeaders() },
-        });
-        if (!res.ok) throw new Error("Failed to load users");
-        const json = await res.json();
+        const json = await apiGet<{ users: UserRow[] }>("/admin/metrics/users");
         setUsers(json.users || []);
       } catch (e: any) {
         setError(e.message);
