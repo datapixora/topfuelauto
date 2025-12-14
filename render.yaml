@@ -13,7 +13,7 @@ services:
       cd api
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: cd api && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: cd api && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -45,7 +45,7 @@ services:
       cd api
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: cd api && celery -A app.workers.celery_app.celery_app worker --loglevel=info
+    startCommand: cd api && alembic upgrade head && celery -A app.workers.celery_app.celery_app worker --loglevel=info
     envVars:
       - key: DATABASE_URL
         fromDatabase:

@@ -53,6 +53,7 @@
 51. [x] Wire /search page to MarketCheck with soft-gate and pagination.
 52. [x] Add per-user usage tracking and plan enforcement for search.
 53. [ ] Add admin analytics charts for search usage.
+54. [x] Ensure admin plans endpoint works after quota fields (auto-run Alembic on Render start).
 - [x] Fix admin API base URL for analytics (use NEXT_PUBLIC_API_BASE_URL).
 - [x] Fix JWT verify consistency (admin 401) and add /api/v1/auth/me.
 - [x] Fix jose import error on deploy (security module).
