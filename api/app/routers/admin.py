@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func, coalesce
+from sqlalchemy import func
 
 from app.core.database import get_db
 from app.core.security import get_current_admin
@@ -50,7 +50,7 @@ def metrics_subscriptions(range: str = "30d", admin: User = Depends(get_current_
 def metrics_searches(range: str = "30d", db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     top = (
         db.query(
-            coalesce(SearchEvent.query_normalized, SearchEvent.query_raw).label("q"),
+            func.coalesce(SearchEvent.query_normalized, SearchEvent.query_raw).label("q"),
             SearchEvent.result_count,
         )
         .order_by(SearchEvent.created_at.desc())
