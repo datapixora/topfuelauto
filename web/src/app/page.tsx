@@ -1,5 +1,6 @@
 import Link from "next/link";
 import TopNav from "../components/TopNav";
+import QuickPulse from "../components/system/QuickPulse";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -128,25 +129,7 @@ export default function HomePage() {
             Not a seller | Not a financial intermediary | Stripe subscriptions only
           </div>
         </div>
-        <Card className="border-slate-800 bg-slate-900/70">
-          <CardHeader>
-            <CardTitle className="text-lg">Quick pulse</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-slate-300">
-            <p>Health pings the API and checks provider latency so you know data is fresh.</p>
-            <ul className="space-y-2">
-              <li className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" /> API reachable
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" /> Data normalization on
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-amber-400" /> Broker leads in beta
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
+        <QuickPulse />
       </section>
 
       <section className="space-y-4">

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.routers import auth, listings, search, vin, broker
-from app.routers.health import router as health_router
+from app.routers.health import get_health_payload, router as health_router
 from app.routers.admin import router as admin_router
 from app.routers.admin_plans import router as admin_plans_router
 
@@ -23,7 +23,7 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     """Legacy root-level health for load balancers; prefer /api/v1/health."""
-    return {"ok": True}
+    return get_health_payload()
 
 
 @app.get("/")

@@ -43,7 +43,8 @@
 41. [x] Polish admin plans UI (cards, feature/quota labels, better edit UX).
 42. [x] Rebuilt marketing homepage with hero, search preview UI, value props, FAQ, and navigation with login modal plus dashboard/signup placeholders.
 43. [x] Added shared login form/dialog tied to updated auth client storing token in `tfa_token` and redirecting to /search.
-44. [ ] Connect /search to backend for live results and filters.
-45. [ ] Implement full pricing page and Stripe plan selection.
-46. [ ] Implement real signup flow (UI + API).
-47. [ ] Add admin dashboard analytics visualizations.
+44. [x] Implement QuickPulse health check (client ping + latency + retry + timeout).
+45. [ ] Connect /search to backend for live results and filters.
+46. [ ] Implement full pricing page and Stripe plan selection.
+47. [ ] Implement real signup flow (UI + API).
+48. [ ] Add admin dashboard analytics visualizations.
