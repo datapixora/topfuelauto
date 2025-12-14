@@ -66,6 +66,35 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.8
 
+  - type: worker
+    name: topfuelauto-beat
+    env: python
+    plan: starter
+    buildCommand: |
+      cd api
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: cd api && alembic upgrade head && celery -A app.workers.celery_app.celery_app beat --loglevel=info
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: topfuelauto-db
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: topfuelauto-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: topfuelauto-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.12.8
+
   - type: web
     name: topfuelauto-web
     env: node

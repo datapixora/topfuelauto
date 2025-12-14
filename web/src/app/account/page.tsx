@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import TopNav from "../../components/TopNav";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { fetchAssistCards, getQuota } from "../../lib/api";
+import { fetchAssistCards, getQuota, listAlerts, listNotifications } from "../../lib/api";
 import { AssistCard, QuotaInfo } from "../../lib/types";
 import { useAuth } from "../../components/auth/AuthProvider";
 
@@ -15,6 +15,7 @@ export default function AccountPage() {
   const { user, loading } = useAuth();
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [cards, setCards] = useState<AssistCard[]>([]);
+  const [alertCounts, setAlertCounts] = useState<{ active: number; unread: number }>({ active: 0, unread: 0 });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -23,18 +24,24 @@ export default function AccountPage() {
       return;
     }
     if (!user) return;
-    getQuota()
-      .then((q) => setQuota(q))
-      .catch(() => setQuota(null));
+    getQuota().then(setQuota).catch(() => setQuota(null));
     fetchAssistCards()
       .then((res) => setCards(res.cards || []))
       .catch((e) => setError(e.message || "Failed to load assist cards"));
+    Promise.all([listAlerts(), listNotifications(5).catch(() => ({ unread_count: 0 }))])
+      .then(([alerts, notifications]) => {
+        setAlertCounts({
+          active: alerts.filter((a) => a.is_active).length,
+          unread: (notifications as any).unread_count || 0,
+        });
+      })
+      .catch(() => setAlertCounts({ active: 0, unread: 0 }));
   }, [user, loading, router]);
 
   return (
     <div className="space-y-8">
       <TopNav />
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle>Plan & quota</CardTitle>
@@ -80,6 +87,22 @@ export default function AccountPage() {
               </div>
             ))}
             {error && <div className="text-red-400 text-xs">{error}</div>}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex items-center justify-between">
+            <CardTitle>Alerts</CardTitle>
+            <Link href="/account/alerts" className="text-sm text-brand-accent underline">
+              Manage
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-slate-200">
+            <div>Active alerts: {alertCounts.active}</div>
+            <div>New matches: {alertCounts.unread}</div>
+            <div className="text-xs text-slate-400">Alerts cadence is plan-controlled.</div>
+            <Button className="px-2 py-1 text-xs" onClick={() => router.push("/account/alerts/new")}>
+              Create alert
+            </Button>
           </CardContent>
         </Card>
       </div>

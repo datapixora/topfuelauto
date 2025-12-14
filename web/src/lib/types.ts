@@ -97,6 +97,9 @@ export type Plan = {
   assist_watch_runs_per_day?: number | null;
   assist_ai_budget_cents_per_day?: number | null;
   assist_reruns_per_day?: number | null;
+  alerts_enabled?: boolean | null;
+  alerts_max_active?: number | null;
+  alerts_cadence_minutes?: number | null;
 };
 
 export type AssistCard = {
@@ -136,5 +139,38 @@ export type AssistArtifact = {
   type: string;
   content_text?: string | null;
   content_json?: any;
+  created_at?: string | null;
+};
+
+export type SavedSearchAlert = {
+  id: number;
+  name?: string | null;
+  query_json: Record<string, any>;
+  is_active: boolean;
+  cadence_minutes?: number | null;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type AlertMatch = {
+  id: number;
+  listing_id: string;
+  listing_url?: string | null;
+  title?: string | null;
+  price?: number | null;
+  location?: string | null;
+  is_new: boolean;
+  matched_at?: string | null;
+};
+
+export type NotificationItem = {
+  id: number;
+  type: string;
+  title: string;
+  body?: string | null;
+  link_url?: string | null;
+  is_read: boolean;
   created_at?: string | null;
 };

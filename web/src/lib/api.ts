@@ -1,5 +1,15 @@
 import { getToken } from "./auth";
-import { Listing, SearchResult, SearchResponse, TokenResponse, QuotaInfo, Plan } from "./types";
+import {
+  Listing,
+  SearchResult,
+  SearchResponse,
+  TokenResponse,
+  QuotaInfo,
+  Plan,
+  SavedSearchAlert,
+  AlertMatch,
+  NotificationItem,
+} from "./types";
 
 const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -202,6 +212,56 @@ export async function cancelAssistCase(id: number) {
 
 export async function assistCaseDetail(id: number) {
   return apiGet<{ case: any; steps: any[]; artifacts: any[] }>(`/assist/cases/${id}`);
+}
+
+export async function listAlerts(): Promise<SavedSearchAlert[]> {
+  const res = await apiGet<{ alerts: SavedSearchAlert[] }>("/alerts");
+  return res.alerts || [];
+}
+
+export async function createAlert(payload: { name?: string; query: Record<string, any>; is_active?: boolean }) {
+  return apiPost("/alerts", payload) as Promise<SavedSearchAlert>;
+}
+
+export async function alertDetail(
+  id: number
+): Promise<{ alert: SavedSearchAlert; matches: AlertMatch[] }> {
+  return apiGet(`/alerts/${id}`);
+}
+
+export async function updateAlert(id: number, payload: { name?: string; is_active?: boolean }) {
+  const res = await fetch(url(`/alerts/${id}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Request failed (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
+export async function deleteAlert(id: number) {
+  const res = await fetch(url(`/alerts/${id}`), {
+    method: "DELETE",
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+  return res.json();
+}
+
+export async function listNotifications(limit = 10): Promise<{ notifications: NotificationItem[]; unread_count: number }> {
+  const res = await apiGet(`/notifications?limit=${limit}`);
+  return res as { notifications: NotificationItem[]; unread_count: number };
+}
+
+export async function markNotificationRead(id: number) {
+  return apiPost(`/notifications/${id}/read`, {});
+}
+
+export async function markAllNotificationsRead() {
+  return apiPost("/notifications/read-all", {});
 }
 
 async function apiPost(path: string, body: any) {

@@ -67,7 +67,8 @@
 65. [x] Hotfix: import ForeignKey for user current_plan_id to fix deploy.
 66. [x] Fix admin metrics users 500/CORS symptom.
 67. [x] Watch scheduler (beat) enqueues due watch cases with plan guards + enqueue lock.
-67. [x] User navigation/auth UX improved (header login state + dashboard link + logout).
+68. [x] User navigation/auth UX improved (header login state + dashboard link + logout).
+69. [x] Alerts v1 (saved searches + in-app notifications + scheduling).
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
@@ -87,8 +88,9 @@ Next steps:
 - [ ] Handle proration / upgrades / downgrades
 - [ ] Webhook coverage for subscription updates
 - [ ] Wire real OpenAI/DeepSeek providers
-- [ ] Add watch scheduler beat + alerts
+- [x] Add watch scheduler beat + alerts
 - [ ] Budget enforcement for Assist calls
+- [ ] Alerts v2: email/push delivery and richer dedupe
 
 Next steps:
 - [ ] Add conversion tracking: upgrades after quota hit

@@ -19,6 +19,15 @@ type Plan = {
   stripe_price_id_yearly?: string | null;
   searches_per_day?: number | null;
   quota_reached_message?: string | null;
+  assist_one_shot_per_day?: number | null;
+  assist_watch_enabled?: boolean | null;
+  assist_watch_max_cases?: number | null;
+  assist_watch_runs_per_day?: number | null;
+  assist_ai_budget_cents_per_day?: number | null;
+  assist_reruns_per_day?: number | null;
+  alerts_enabled?: boolean | null;
+  alerts_max_active?: number | null;
+  alerts_cadence_minutes?: number | null;
 };
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -62,6 +71,15 @@ export default function AdminPlans() {
     quota_reached_message: "",
     stripe_price_id_monthly: "",
     stripe_price_id_yearly: "",
+    assist_one_shot_per_day: "",
+    assist_watch_enabled: false,
+    assist_watch_max_cases: "",
+    assist_watch_runs_per_day: "",
+    assist_ai_budget_cents_per_day: "",
+    assist_reruns_per_day: "",
+    alerts_enabled: false,
+    alerts_max_active: "",
+    alerts_cadence_minutes: "",
   });
   const [parseError, setParseError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -105,6 +123,16 @@ export default function AdminPlans() {
       quota_reached_message: plan.quota_reached_message || "",
       stripe_price_id_monthly: plan.stripe_price_id_monthly || "",
       stripe_price_id_yearly: plan.stripe_price_id_yearly || "",
+      assist_one_shot_per_day: plan.assist_one_shot_per_day == null ? "" : String(plan.assist_one_shot_per_day),
+      assist_watch_enabled: Boolean(plan.assist_watch_enabled),
+      assist_watch_max_cases: plan.assist_watch_max_cases == null ? "" : String(plan.assist_watch_max_cases),
+      assist_watch_runs_per_day: plan.assist_watch_runs_per_day == null ? "" : String(plan.assist_watch_runs_per_day),
+      assist_ai_budget_cents_per_day:
+        plan.assist_ai_budget_cents_per_day == null ? "" : String(plan.assist_ai_budget_cents_per_day),
+      assist_reruns_per_day: plan.assist_reruns_per_day == null ? "" : String(plan.assist_reruns_per_day),
+      alerts_enabled: Boolean(plan.alerts_enabled),
+      alerts_max_active: plan.alerts_max_active == null ? "" : String(plan.alerts_max_active),
+      alerts_cadence_minutes: plan.alerts_cadence_minutes == null ? "" : String(plan.alerts_cadence_minutes),
     });
     setParseError(null);
     setSuccess(null);
@@ -124,6 +152,16 @@ export default function AdminPlans() {
       quota_reached_message: plan.quota_reached_message || "",
       stripe_price_id_monthly: plan.stripe_price_id_monthly || "",
       stripe_price_id_yearly: plan.stripe_price_id_yearly || "",
+      assist_one_shot_per_day: plan.assist_one_shot_per_day == null ? "" : String(plan.assist_one_shot_per_day),
+      assist_watch_enabled: Boolean(plan.assist_watch_enabled),
+      assist_watch_max_cases: plan.assist_watch_max_cases == null ? "" : String(plan.assist_watch_max_cases),
+      assist_watch_runs_per_day: plan.assist_watch_runs_per_day == null ? "" : String(plan.assist_watch_runs_per_day),
+      assist_ai_budget_cents_per_day:
+        plan.assist_ai_budget_cents_per_day == null ? "" : String(plan.assist_ai_budget_cents_per_day),
+      assist_reruns_per_day: plan.assist_reruns_per_day == null ? "" : String(plan.assist_reruns_per_day),
+      alerts_enabled: Boolean(plan.alerts_enabled),
+      alerts_max_active: plan.alerts_max_active == null ? "" : String(plan.alerts_max_active),
+      alerts_cadence_minutes: plan.alerts_cadence_minutes == null ? "" : String(plan.alerts_cadence_minutes),
     });
     setParseError(null);
     setError(null);
@@ -159,6 +197,72 @@ export default function AdminPlans() {
       setParseError("Searches per day must be a non-negative number or blank");
       return;
     }
+    const assistOneShotTrim = form.assist_one_shot_per_day.toString().trim();
+    const assistOneShotVal = assistOneShotTrim === "" ? null : Number(assistOneShotTrim);
+    if (
+      assistOneShotTrim !== "" &&
+      (!Number.isFinite(assistOneShotVal) || Number.isNaN(assistOneShotVal) || assistOneShotVal < 0)
+    ) {
+      setParseError("Assist one-shot per day must be a non-negative number or blank");
+      return;
+    }
+
+    const assistWatchMaxTrim = form.assist_watch_max_cases.toString().trim();
+    const assistWatchMaxVal = assistWatchMaxTrim === "" ? null : Number(assistWatchMaxTrim);
+    if (
+      assistWatchMaxTrim !== "" &&
+      (!Number.isFinite(assistWatchMaxVal) || Number.isNaN(assistWatchMaxVal) || assistWatchMaxVal < 0)
+    ) {
+      setParseError("Assist watch max cases must be a non-negative number or blank");
+      return;
+    }
+
+    const assistWatchRunsTrim = form.assist_watch_runs_per_day.toString().trim();
+    const assistWatchRunsVal = assistWatchRunsTrim === "" ? null : Number(assistWatchRunsTrim);
+    if (
+      assistWatchRunsTrim !== "" &&
+      (!Number.isFinite(assistWatchRunsVal) || Number.isNaN(assistWatchRunsVal) || assistWatchRunsVal < 0)
+    ) {
+      setParseError("Assist watch runs per day must be a non-negative number or blank");
+      return;
+    }
+
+    const assistBudgetTrim = form.assist_ai_budget_cents_per_day.toString().trim();
+    const assistBudgetVal = assistBudgetTrim === "" ? null : Number(assistBudgetTrim);
+    if (
+      assistBudgetTrim !== "" &&
+      (!Number.isFinite(assistBudgetVal) || Number.isNaN(assistBudgetVal) || assistBudgetVal < 0)
+    ) {
+      setParseError("Assist AI budget (cents per day) must be a non-negative number or blank");
+      return;
+    }
+
+    const assistRerunsTrim = form.assist_reruns_per_day.toString().trim();
+    const assistRerunsVal = assistRerunsTrim === "" ? null : Number(assistRerunsTrim);
+    if (
+      assistRerunsTrim !== "" &&
+      (!Number.isFinite(assistRerunsVal) || Number.isNaN(assistRerunsVal) || assistRerunsVal < 0)
+    ) {
+      setParseError("Assist reruns per day must be a non-negative number or blank");
+      return;
+    }
+
+    const alertsMaxTrim = form.alerts_max_active.toString().trim();
+    const alertsMaxVal = alertsMaxTrim === "" ? null : Number(alertsMaxTrim);
+    if (alertsMaxTrim !== "" && (!Number.isFinite(alertsMaxVal) || Number.isNaN(alertsMaxVal) || alertsMaxVal < 0)) {
+      setParseError("Alerts max active must be a non-negative number or blank");
+      return;
+    }
+
+    const alertsCadenceTrim = form.alerts_cadence_minutes.toString().trim();
+    const alertsCadenceVal = alertsCadenceTrim === "" ? null : Number(alertsCadenceTrim);
+    if (
+      alertsCadenceTrim !== "" &&
+      (!Number.isFinite(alertsCadenceVal) || Number.isNaN(alertsCadenceVal) || alertsCadenceVal < 0)
+    ) {
+      setParseError("Alerts cadence must be a non-negative number or blank");
+      return;
+    }
     const quotaMsg = form.quota_reached_message.trim();
 
     setSaving(true);
@@ -176,6 +280,15 @@ export default function AdminPlans() {
           quota_reached_message: quotaMsg === "" ? null : quotaMsg,
           stripe_price_id_monthly: form.stripe_price_id_monthly || null,
           stripe_price_id_yearly: form.stripe_price_id_yearly || null,
+          assist_one_shot_per_day: assistOneShotVal,
+          assist_watch_enabled: !!form.assist_watch_enabled,
+          assist_watch_max_cases: assistWatchMaxVal,
+          assist_watch_runs_per_day: assistWatchRunsVal,
+          assist_ai_budget_cents_per_day: assistBudgetVal,
+          assist_reruns_per_day: assistRerunsVal,
+          alerts_enabled: !!form.alerts_enabled,
+          alerts_max_active: alertsMaxVal,
+          alerts_cadence_minutes: alertsCadenceVal,
         }),
       });
       if (!res.ok) {
@@ -304,6 +417,25 @@ export default function AdminPlans() {
                   </div>
                 </div>
 
+                <div className="space-y-1">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Assist</div>
+                  <div className="text-xs text-slate-400">Watch enabled: {plan.assist_watch_enabled ? "Yes" : "No"}</div>
+                  <div className="text-xs text-slate-400">
+                    One-shot/day: {plan.assist_one_shot_per_day ?? "-"} • Watch runs/day: {plan.assist_watch_runs_per_day ?? "-"}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Watch max cases: {plan.assist_watch_max_cases ?? "-"} • Reruns/day: {plan.assist_reruns_per_day ?? "-"}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Alerts</div>
+                  <div className="text-xs text-slate-400">Enabled: {plan.alerts_enabled ? "Yes" : "No"}</div>
+                  <div className="text-xs text-slate-400">
+                    Max active: {plan.alerts_max_active ?? "-"} • Cadence: {plan.alerts_cadence_minutes ?? "-"} min
+                  </div>
+                </div>
+
                 {showAdvanced && (
                   <div className="rounded border border-slate-800 bg-slate-950 px-3 py-2">
                     <div className="flex items-center justify-between text-xs text-slate-400">
@@ -383,6 +515,92 @@ export default function AdminPlans() {
                 placeholder="Leave blank for unlimited"
               />
               <div className="text-xs text-slate-500">Must be a non-negative integer; leave blank for unlimited.</div>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex items-center gap-2 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={form.assist_watch_enabled}
+                  onChange={(e) => setForm({ ...form, assist_watch_enabled: e.target.checked })}
+                />
+                <span>Assist watch enabled</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={form.alerts_enabled}
+                  onChange={(e) => setForm({ ...form, alerts_enabled: e.target.checked })}
+                />
+                <span>Alerts enabled</span>
+              </label>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="block space-y-1 text-sm text-slate-200">
+                <div>Assist one-shot per day</div>
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                  value={form.assist_one_shot_per_day}
+                  onChange={(e) => setForm({ ...form, assist_one_shot_per_day: e.target.value })}
+                  placeholder="Leave blank for unlimited"
+                />
+              </label>
+              <label className="block space-y-1 text-sm text-slate-200">
+                <div>Assist watch max cases</div>
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                  value={form.assist_watch_max_cases}
+                  onChange={(e) => setForm({ ...form, assist_watch_max_cases: e.target.value })}
+                  placeholder="Leave blank for unlimited"
+                />
+              </label>
+              <label className="block space-y-1 text-sm text-slate-200">
+                <div>Assist watch runs per day</div>
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                  value={form.assist_watch_runs_per_day}
+                  onChange={(e) => setForm({ ...form, assist_watch_runs_per_day: e.target.value })}
+                  placeholder="Leave blank for unlimited"
+                />
+              </label>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="block space-y-1 text-sm text-slate-200">
+                <div>Assist AI budget (cents/day)</div>
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                  value={form.assist_ai_budget_cents_per_day}
+                  onChange={(e) => setForm({ ...form, assist_ai_budget_cents_per_day: e.target.value })}
+                  placeholder="Leave blank for none"
+                />
+              </label>
+              <label className="block space-y-1 text-sm text-slate-200">
+                <div>Assist reruns per day</div>
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                  value={form.assist_reruns_per_day}
+                  onChange={(e) => setForm({ ...form, assist_reruns_per_day: e.target.value })}
+                  placeholder="Leave blank for none"
+                />
+              </label>
+              <label className="block space-y-1 text-sm text-slate-200">
+                <div>Alerts max active</div>
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                  value={form.alerts_max_active}
+                  onChange={(e) => setForm({ ...form, alerts_max_active: e.target.value })}
+                  placeholder="Leave blank for unlimited"
+                />
+              </label>
+            </div>
+            <label className="block space-y-1 text-sm text-slate-200">
+              <div>Alerts cadence (minutes)</div>
+              <input
+                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                value={form.alerts_cadence_minutes}
+                onChange={(e) => setForm({ ...form, alerts_cadence_minutes: e.target.value })}
+                placeholder="Leave blank for plan default"
+              />
+              <div className="text-xs text-slate-500">Determines how often alerts run.</div>
             </label>
             <label className="block space-y-1">
               <div className="text-slate-200">Features (JSON object)</div>

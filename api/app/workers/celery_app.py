@@ -14,7 +14,12 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.assist.enqueue_due_watch_cases",
         "schedule": 120,
         "args": (),
-    }
+    },
+    "alerts-enqueue": {
+        "task": "app.workers.alerts.enqueue_due_alerts",
+        "schedule": 150,
+        "args": (),
+    },
 }
 
 celery_app.conf.timezone = "UTC"

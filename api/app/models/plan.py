@@ -26,5 +26,8 @@ class Plan(Base):
     assist_watch_runs_per_day = Column(Integer, nullable=True)
     assist_ai_budget_cents_per_day = Column(Integer, nullable=True)
     assist_reruns_per_day = Column(Integer, nullable=True)
+    alerts_enabled = Column(Boolean, default=False, nullable=True)
+    alerts_max_active = Column(Integer, nullable=True)
+    alerts_cadence_minutes = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

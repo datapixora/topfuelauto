@@ -16,6 +16,15 @@ class PlanOut(BaseModel):
     quota_reached_message: Optional[str] = None
     stripe_price_id_monthly: Optional[str] = None
     stripe_price_id_yearly: Optional[str] = None
+    assist_one_shot_per_day: Optional[int] = None
+    assist_watch_enabled: Optional[bool] = None
+    assist_watch_max_cases: Optional[int] = None
+    assist_watch_runs_per_day: Optional[int] = None
+    assist_ai_budget_cents_per_day: Optional[int] = None
+    assist_reruns_per_day: Optional[int] = None
+    alerts_enabled: Optional[bool] = None
+    alerts_max_active: Optional[int] = None
+    alerts_cadence_minutes: Optional[int] = None
     is_active: bool
     created_at: datetime
 
@@ -33,6 +42,15 @@ class PlanUpdate(BaseModel):
     quota_reached_message: Optional[str] = None
     stripe_price_id_monthly: Optional[str] = None
     stripe_price_id_yearly: Optional[str] = None
+    assist_one_shot_per_day: Optional[int] = None
+    assist_watch_enabled: Optional[bool] = None
+    assist_watch_max_cases: Optional[int] = None
+    assist_watch_runs_per_day: Optional[int] = None
+    assist_ai_budget_cents_per_day: Optional[int] = None
+    assist_reruns_per_day: Optional[int] = None
+    alerts_enabled: Optional[bool] = None
+    alerts_max_active: Optional[int] = None
+    alerts_cadence_minutes: Optional[int] = None
     is_active: Optional[bool] = None
 
     @validator("features", "quotas")
@@ -65,6 +83,22 @@ class PlanUpdate(BaseModel):
             return v
         if len(v) > 2800:
             raise ValueError("quota_reached_message too long (max 2800 chars)")
+        return v
+
+    @validator(
+        "assist_one_shot_per_day",
+        "assist_watch_max_cases",
+        "assist_watch_runs_per_day",
+        "assist_ai_budget_cents_per_day",
+        "assist_reruns_per_day",
+        "alerts_max_active",
+        "alerts_cadence_minutes",
+    )
+    def non_negative_ints(cls, v):
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("Value must be non-negative")
         return v
 
 
