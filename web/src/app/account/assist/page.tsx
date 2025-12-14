@@ -1,21 +1,30 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import TopNav from "../../../components/TopNav";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { listAssistCases } from "../../../lib/api";
+import { useAuth } from "../../../components/auth/AuthProvider";
 
 export default function AssistListPage() {
+  const router = useRouter();
+  const { user, loading } = useAuth();
   const [cases, setCases] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!user && !loading) {
+      router.replace("/login?next=/account/assist");
+      return;
+    }
+    if (!user) return;
     listAssistCases()
       .then((res) => setCases(res.cases || []))
       .catch((e) => setError(e.message || "Failed to load cases"));
-  }, []);
+  }, [user, loading, router]);
 
   return (
     <div className="space-y-6">

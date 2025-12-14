@@ -30,6 +30,18 @@ export const authHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+export async function apiGet<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const absolute = path.startsWith("http") ? path : url(path);
+  const method = (init?.method || "GET").toUpperCase();
+  const res = await fetch(absolute, {
+    ...init,
+    method,
+    headers: { ...(init?.headers || {}), ...authHeaders() },
+  });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return res.json();
+}
+
 export async function searchVehicles(params: Record<string, string | number | undefined>): Promise<SearchResult[]> {
   const qs = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -228,29 +240,3 @@ export async function decodeVin(vin: string) {
 }
 
 const inFlight = new Map<string, Promise<any>>();
-
-export async function apiGet<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const absolute = path.startsWith("http") ? path : url(path);
-  const method = (init?.method || "GET").toUpperCase();
-  const key = `${method} ${absolute}`;
-
-  if (inFlight.has(key)) {
-    return inFlight.get(key) as Promise<T>;
-  }
-
-  const promise = fetch(absolute, {
-    ...init,
-    method,
-    headers: { ...(init?.headers || {}), ...authHeaders() },
-  }).then(async (res) => {
-    inFlight.delete(key);
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
-    return res.json();
-  }).catch((err) => {
-    inFlight.delete(key);
-    throw err;
-  });
-
-  inFlight.set(key, promise);
-  return promise;
-}

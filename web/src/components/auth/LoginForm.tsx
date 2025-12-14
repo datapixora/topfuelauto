@@ -30,7 +30,7 @@ export default function LoginForm({ onSuccess, redirectTo }: LoginFormProps) {
       const res = await login(email, password);
       setToken(res.access_token);
       onSuccess?.(res.access_token);
-      const target = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/search";
+      const target = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/account";
       router.push(target);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to sign in.";

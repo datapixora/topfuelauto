@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import TopNav from "../../../../components/TopNav";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
 import { assistCaseDetail, submitAssistCase } from "../../../../lib/api";
 import { Button } from "../../../../components/ui/button";
+import { useAuth } from "../../../../components/auth/AuthProvider";
 
 export default function AssistDetailPage() {
   const params = useParams();
   const caseId = params?.id as string;
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -28,8 +31,12 @@ export default function AssistDetailPage() {
   };
 
   useEffect(() => {
-    if (caseId) void load();
-  }, [caseId]);
+    if (!user && !authLoading) {
+      router.replace(`/login?next=/account/assist/${caseId}`);
+      return;
+    }
+    if (caseId && user) void load();
+  }, [caseId, user, authLoading, router]);
 
   const rerun = async () => {
     await submitAssistCase(Number(caseId));

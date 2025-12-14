@@ -5,6 +5,7 @@ import LoginForm from "./LoginForm";
 import SignupForm from "./SignupForm";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { useAuth } from "./AuthProvider";
 
 type LoginDialogProps = {
   onLoggedIn?: (token: string) => void;
@@ -21,6 +22,7 @@ export default function LoginDialog({
 }: LoginDialogProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"login" | "signup">("login");
+  const { refresh } = useAuth();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -48,6 +50,7 @@ export default function LoginDialog({
           <LoginForm
             onSuccess={(token) => {
               onLoggedIn?.(token);
+              void refresh();
               setOpen(false);
             }}
           />
@@ -55,6 +58,7 @@ export default function LoginDialog({
           <SignupForm
             onSuccess={(token) => {
               onLoggedIn?.(token);
+              void refresh();
               setOpen(false);
             }}
           />

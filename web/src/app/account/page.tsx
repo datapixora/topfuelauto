@@ -2,27 +2,34 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import TopNav from "../../components/TopNav";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { fetchAssistCards, getQuota } from "../../lib/api";
 import { AssistCard, QuotaInfo } from "../../lib/types";
-import { getToken } from "../../lib/auth";
+import { useAuth } from "../../components/auth/AuthProvider";
 
 export default function AccountPage() {
+  const router = useRouter();
+  const { user, loading } = useAuth();
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [cards, setCards] = useState<AssistCard[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!getToken()) return;
+    if (!user && !loading) {
+      router.replace("/login?next=/account");
+      return;
+    }
+    if (!user) return;
     getQuota()
       .then((q) => setQuota(q))
       .catch(() => setQuota(null));
     fetchAssistCards()
       .then((res) => setCards(res.cards || []))
       .catch((e) => setError(e.message || "Failed to load assist cards"));
-  }, []);
+  }, [user, loading, router]);
 
   return (
     <div className="space-y-8">

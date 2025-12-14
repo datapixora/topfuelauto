@@ -1,19 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import TopNav from "../../../../components/TopNav";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
 import { Button } from "../../../../components/ui/button";
 import { createAssistCase, submitAssistCase } from "../../../../lib/api";
+import { useAuth } from "../../../../components/auth/AuthProvider";
 
 export default function AssistNewPage() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [title, setTitle] = useState("");
   const [mode, setMode] = useState<"one_shot" | "watch">("one_shot");
   const [intake, setIntake] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user && !authLoading) {
+      router.replace("/login?next=/account/assist/new");
+    }
+  }, [user, authLoading, router]);
 
   const onSubmit = async (run: boolean) => {
     setLoading(true);

@@ -66,6 +66,7 @@
 64. [x] Assist Core v1 with watch mode and prompt skeleton.
 65. [x] Hotfix: import ForeignKey for user current_plan_id to fix deploy.
 66. [x] Fix admin metrics users 500/CORS symptom.
+67. [x] User navigation/auth UX improved (header login state + dashboard link + logout).
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
