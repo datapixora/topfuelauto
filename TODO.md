@@ -62,6 +62,7 @@
 60. [x] Admin user management v1 (plan changes, deactivate/reactivate).
 61. [x] Admin user detail cockpit (quota, usage, searches, actions).
 62. [x] Remove is_pro as source of truth (plan-based enforcement).
+63. [x] Stripe v1 monthly+yearly (admin-config) checkout + webhook.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
@@ -77,6 +78,9 @@
 Next steps:
 - [ ] Admin: refund/credit tools (future)
 - [ ] Stripe sync: plan changes via webhook (later)
+- [ ] Show subscription status in user account
+- [ ] Handle proration / upgrades / downgrades
+- [ ] Webhook coverage for subscription updates
 
 Next steps:
 - [ ] Add conversion tracking: upgrades after quota hit

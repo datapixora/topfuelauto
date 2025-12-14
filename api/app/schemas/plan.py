@@ -14,6 +14,8 @@ class PlanOut(BaseModel):
     quotas: Optional[Dict[str, Any]] = None
     searches_per_day: Optional[int] = None
     quota_reached_message: Optional[str] = None
+    stripe_price_id_monthly: Optional[str] = None
+    stripe_price_id_yearly: Optional[str] = None
     is_active: bool
     created_at: datetime
 
@@ -29,6 +31,8 @@ class PlanUpdate(BaseModel):
     quotas: Optional[Dict[str, Any]] = None
     searches_per_day: Optional[int] = None
     quota_reached_message: Optional[str] = None
+    stripe_price_id_monthly: Optional[str] = None
+    stripe_price_id_yearly: Optional[str] = None
     is_active: Optional[bool] = None
 
     @validator("features", "quotas")
@@ -45,6 +49,14 @@ class PlanUpdate(BaseModel):
             return v
         if v < 0:
             raise ValueError("searches_per_day must be >= 0")
+        return v
+
+    @validator("stripe_price_id_monthly", "stripe_price_id_yearly")
+    def stripe_price_format(cls, v):
+        if v is None:
+            return v
+        if len(v) > 100:
+            raise ValueError("stripe price id too long")
         return v
 
     @validator("quota_reached_message")

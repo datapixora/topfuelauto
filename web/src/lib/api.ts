@@ -1,5 +1,5 @@
 import { getToken } from "./auth";
-import { Listing, SearchResult, SearchResponse, TokenResponse, QuotaInfo } from "./types";
+import { Listing, SearchResult, SearchResponse, TokenResponse, QuotaInfo, Plan } from "./types";
 
 const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -141,6 +141,31 @@ export async function getQuota(): Promise<QuotaInfo> {
   });
   if (!res.ok) throw new Error("Unable to load quota");
   return res.json();
+}
+
+export async function listPlans(): Promise<Plan[]> {
+  const res = await fetch(url("/admin/plans/public"));
+  if (!res.ok) throw new Error("Unable to load plans");
+  const json = await res.json();
+  return json.plans || [];
+}
+
+export async function startCheckout(planId: number, interval: "month" | "year"): Promise<string> {
+  const res = await fetch(url("/billing/checkout"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ plan_id: planId, interval }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const code = detail?.code;
+    if (code === "stripe_price_not_configured") {
+      throw new Error("This plan is not configured for checkout yet.");
+    }
+    throw new Error(`Checkout failed (${res.status})`);
+  }
+  const json = await res.json();
+  return json.checkout_url;
 }
 
 export async function requestBid(payload: {

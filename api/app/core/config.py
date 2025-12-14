@@ -37,6 +37,9 @@ class Settings(BaseSettings):
         alias="ALLOWED_ORIGINS",
     )
     nhtsa_api_base: str = Field("https://vpic.nhtsa.dot.gov/api/vehicles", alias="NHTSA_API_BASE")
+    stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
+    stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
+    public_web_url: str = Field("https://topfuelauto.com", alias="PUBLIC_WEB_URL")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False)
 

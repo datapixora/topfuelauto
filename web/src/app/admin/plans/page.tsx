@@ -15,6 +15,8 @@ type Plan = {
   features?: Record<string, any> | null;
   quotas?: Record<string, any> | null;
   is_active: boolean;
+  stripe_price_id_monthly?: string | null;
+  stripe_price_id_yearly?: string | null;
   searches_per_day?: number | null;
   quota_reached_message?: string | null;
 };
@@ -58,6 +60,8 @@ export default function AdminPlans() {
     quotas: "{}",
     searches_per_day: "",
     quota_reached_message: "",
+    stripe_price_id_monthly: "",
+    stripe_price_id_yearly: "",
   });
   const [parseError, setParseError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -99,6 +103,8 @@ export default function AdminPlans() {
       quotas: JSON.stringify(plan.quotas || {}, null, 2),
       searches_per_day: plan.searches_per_day == null ? "" : String(plan.searches_per_day),
       quota_reached_message: plan.quota_reached_message || "",
+      stripe_price_id_monthly: plan.stripe_price_id_monthly || "",
+      stripe_price_id_yearly: plan.stripe_price_id_yearly || "",
     });
     setParseError(null);
     setSuccess(null);
@@ -116,6 +122,8 @@ export default function AdminPlans() {
       quotas: JSON.stringify(plan.quotas || {}, null, 2),
       searches_per_day: plan.searches_per_day == null ? "" : String(plan.searches_per_day),
       quota_reached_message: plan.quota_reached_message || "",
+      stripe_price_id_monthly: plan.stripe_price_id_monthly || "",
+      stripe_price_id_yearly: plan.stripe_price_id_yearly || "",
     });
     setParseError(null);
     setError(null);
@@ -166,6 +174,8 @@ export default function AdminPlans() {
           quotas: quotasObj,
           searches_per_day: searchesVal,
           quota_reached_message: quotaMsg === "" ? null : quotaMsg,
+          stripe_price_id_monthly: form.stripe_price_id_monthly || null,
+          stripe_price_id_yearly: form.stripe_price_id_yearly || null,
         }),
       });
       if (!res.ok) {
@@ -402,6 +412,24 @@ export default function AdminPlans() {
                 maxLength={2800}
               />
               <div className="text-xs text-slate-500">Shown to users when they hit the daily search limit.</div>
+            </label>
+            <label className="block space-y-1">
+              <div className="text-slate-200">Stripe Monthly Price ID</div>
+              <input
+                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                value={form.stripe_price_id_monthly}
+                onChange={(e) => setForm({ ...form, stripe_price_id_monthly: e.target.value })}
+                placeholder="price_xxx (leave blank if not configured)"
+              />
+            </label>
+            <label className="block space-y-1">
+              <div className="text-slate-200">Stripe Yearly Price ID</div>
+              <input
+                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                value={form.stripe_price_id_yearly}
+                onChange={(e) => setForm({ ...form, stripe_price_id_yearly: e.target.value })}
+                placeholder="price_xxx (leave blank if not configured)"
+              />
             </label>
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" onClick={() => setEditId(null)} disabled={saving}>

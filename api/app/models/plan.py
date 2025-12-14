@@ -18,5 +18,7 @@ class Plan(Base):
     quotas = Column(JSONB, nullable=True)
     searches_per_day = Column(Integer, nullable=True)
     quota_reached_message = Column(Text, nullable=True)
+    stripe_price_id_monthly = Column(String(100), nullable=True)
+    stripe_price_id_yearly = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

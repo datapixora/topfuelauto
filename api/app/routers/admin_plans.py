@@ -36,3 +36,9 @@ def update_admin_plan(
     db.commit()
     db.refresh(plan)
     return plan
+
+
+@router.get("/plans/public", response_model=PlanListResponse)
+def list_public_plans(db: Session = Depends(get_db)):
+    plans = db.query(Plan).filter(Plan.is_active.is_(True)).order_by(Plan.id.asc()).all()
+    return {"plans": plans}

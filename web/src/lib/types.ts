@@ -79,3 +79,16 @@ export type SearchResponse = {
   sources: SearchSource[];
   quota?: QuotaInfo | null;
 };
+
+export type Plan = {
+  id: number;
+  key: string;
+  name: string;
+  description?: string | null;
+  price_monthly?: number | null;
+  features?: Record<string, any> | null;
+  quotas?: Record<string, any> | null;
+  searches_per_day?: number | null;
+  stripe_price_id_monthly?: string | null;
+  stripe_price_id_yearly?: string | null;
+};
