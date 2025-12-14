@@ -45,12 +45,19 @@ def metrics_subscriptions(range: str = "30d", admin: User = Depends(get_current_
 @router.get("/metrics/searches")
 def metrics_searches(range: str = "30d", db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     top = (
-        db.query(SearchEvent.query, SearchEvent.results_count)
+        db.query(
+            SearchEvent.query_normalized,
+            SearchEvent.query_raw,
+            SearchEvent.result_count,
+        )
         .order_by(SearchEvent.created_at.desc())
-        .limit(10)
+        .limit(20)
         .all()
     )
-    top_list = [{"query": q, "results_count": rc} for q, rc in top]
+    top_list = []
+    for q_norm, q_raw, rc in top:
+        query_val = q_norm or q_raw or ""
+        top_list.append({"query": query_val, "results_count": rc})
     return {"range": range, "top_queries": top_list, "series": []}
 
 
