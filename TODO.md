@@ -49,3 +49,4 @@
 47. [ ] Implement full pricing page and Stripe plan selection.
 48. [ ] Implement real signup flow (UI + API).
 49. [ ] Add admin dashboard analytics visualizations.
+50. [x] Add MarketCheck provider adapter and /api/v1/search aggregation endpoint.

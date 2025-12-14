@@ -13,6 +13,8 @@ class SearchQuery(BaseModel):
     condition: str | None = None
     transmission: str | None = None
     sort: str | None = None
+    make: str | None = None
+    model: str | None = None
 
 
 class SearchResult(BaseModel):
@@ -29,3 +31,34 @@ class SearchResult(BaseModel):
     end_date: datetime | None = None
     risk_flags: list | None = None
     score: float | None = None
+
+
+class SearchItem(BaseModel):
+    id: str
+    title: str
+    year: int | None = None
+    make: str | None = None
+    model: str | None = None
+    trim: str | None = None
+    price: float | None = None
+    currency: str | None = None
+    location: str | None = None
+    url: str | None = None
+    source: str | None = None
+    risk_flags: list | None = None
+
+
+class SearchSource(BaseModel):
+    name: str
+    enabled: bool = True
+    total: int | None = None
+    message: str | None = None
+    error: str | None = None
+
+
+class SearchResponse(BaseModel):
+    items: list[SearchItem]
+    total: int
+    page: int
+    page_size: int
+    sources: list[SearchSource]

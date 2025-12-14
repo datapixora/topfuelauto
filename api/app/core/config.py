@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     celery_broker_url: str = Field("redis://localhost:6379/0", alias="CELERY_BROKER_URL")
     celery_result_backend: str = Field("redis://localhost:6379/1", alias="CELERY_RESULT_BACKEND")
 
+    marketcheck_api_key: str | None = Field(default=None, alias="MARKETCHECK_API_KEY")
+    marketcheck_api_secret: str | None = Field(default=None, alias="MARKETCHECK_API_SECRET")
+    marketcheck_api_base: str = Field("https://mc-api.marketcheck.com/v2", alias="MARKETCHECK_API_BASE")
+    marketcheck_enabled: bool = Field(default=True, alias="MARKETCHECK_ENABLED")
+
     cors_origins: List[str] = Field(
         default_factory=lambda: [
             "http://localhost:3000",
@@ -38,6 +43,14 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
+
+    @property
+    def marketcheck_active(self) -> bool:
+        return bool(
+            self.marketcheck_enabled
+            and self.marketcheck_api_key
+            and self.marketcheck_api_secret
+        )
 
 
 @lru_cache
