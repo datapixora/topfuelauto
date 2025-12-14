@@ -1,5 +1,5 @@
 import { getToken } from "./auth";
-import { Listing, SearchResult, TokenResponse } from "./types";
+import { Listing, SearchResult, SearchResponse, TokenResponse } from "./types";
 
 const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -31,6 +31,16 @@ export const authHeaders = () => {
 };
 
 export async function searchVehicles(params: Record<string, string | number | undefined>): Promise<SearchResult[]> {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") qs.append(k, String(v));
+  });
+  const res = await fetch(url(`/search?${qs.toString()}`));
+  if (!res.ok) throw new Error("Search failed");
+  return res.json();
+}
+
+export async function searchMarketplace(params: Record<string, string | number | undefined>): Promise<SearchResponse> {
   const qs = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== "") qs.append(k, String(v));

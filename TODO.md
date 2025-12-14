@@ -50,3 +50,6 @@
 48. [ ] Implement real signup flow (UI + API).
 49. [ ] Add admin dashboard analytics visualizations.
 50. [x] Add MarketCheck provider adapter and /api/v1/search aggregation endpoint.
+51. [x] Wire /search page to MarketCheck with soft-gate and pagination.
+52. [ ] Add per-user usage tracking and plan enforcement for search.
+53. [ ] Add admin analytics charts for search usage.

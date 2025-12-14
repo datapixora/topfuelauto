@@ -39,3 +39,35 @@ export type TokenResponse = {
   access_token: string;
   token_type: string;
 };
+
+export type SearchItem = {
+  id: string;
+  title: string;
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  trim?: string | null;
+  price?: number | null;
+  currency?: string | null;
+  location?: string | null;
+  url?: string | null;
+  source?: string | null;
+  risk_flags?: any[] | null;
+  thumbnail_url?: string | null;
+};
+
+export type SearchSource = {
+  name: string;
+  enabled: boolean;
+  total?: number | null;
+  message?: string | null;
+  error?: string | null;
+};
+
+export type SearchResponse = {
+  items: SearchItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  sources: SearchSource[];
+};
