@@ -57,6 +57,7 @@
 - [x] Fix JWT verify consistency (admin 401) and add /api/v1/auth/me.
 - [x] Fix jose import error on deploy (security module).
 - [x] Fix admin metrics analytics query field.
+- [x] Fix admin metrics 500s (SearchEvent field mismatch).
 
 ## Analytics Milestones
 - [x] Milestone 1: Harden SearchEvent logging (fields, caching/rate-limit signals, safe errors).

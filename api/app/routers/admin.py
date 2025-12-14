@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import func, coalesce
 
 from app.core.database import get_db
 from app.core.security import get_current_admin
@@ -15,13 +16,16 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 def metrics_overview(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     total_users = db.query(User).count()
     admins = db.query(User).filter(User.is_admin.is_(True)).count()
-    searches_today = (
-        db.query(SearchEvent).count()
-    )  # TODO: restrict to today when data populated
+    searches = db.query(SearchEvent)
+    searches_count = searches.count()
+    zero_results = searches.filter(SearchEvent.result_count == 0).count()
+    avg_latency = searches.with_entities(func.avg(SearchEvent.latency_ms)).scalar() or 0
     return {
         "total_users": total_users,
         "admins": admins,
-        "searches_today": searches_today,
+        "searches_today": searches_count,
+        "zero_results": zero_results,
+        "avg_latency_ms": int(avg_latency),
         "mrr": 0,  # TODO: compute from subscriptions when available
         "active_subscriptions": 0,  # TODO
         "new_signups": 0,  # TODO
@@ -46,8 +50,7 @@ def metrics_subscriptions(range: str = "30d", admin: User = Depends(get_current_
 def metrics_searches(range: str = "30d", db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     top = (
         db.query(
-            SearchEvent.query_normalized,
-            SearchEvent.query_raw,
+            coalesce(SearchEvent.query_normalized, SearchEvent.query_raw).label("q"),
             SearchEvent.result_count,
         )
         .order_by(SearchEvent.created_at.desc())
@@ -55,8 +58,8 @@ def metrics_searches(range: str = "30d", db: Session = Depends(get_db), admin: U
         .all()
     )
     top_list = []
-    for q_norm, q_raw, rc in top:
-        query_val = q_norm or q_raw or ""
+    for q, rc in top:
+        query_val = q or ""
         top_list.append({"query": query_val, "results_count": rc})
     return {"range": range, "top_queries": top_list, "series": []}
 
