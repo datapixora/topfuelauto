@@ -44,7 +44,8 @@
 42. [x] Rebuilt marketing homepage with hero, search preview UI, value props, FAQ, and navigation with login modal plus dashboard/signup placeholders.
 43. [x] Added shared login form/dialog tied to updated auth client storing token in `tfa_token` and redirecting to /search.
 44. [x] Implement QuickPulse health check (client ping + latency + retry + timeout).
-45. [ ] Connect /search to backend for live results and filters.
-46. [ ] Implement full pricing page and Stripe plan selection.
-47. [ ] Implement real signup flow (UI + API).
-48. [ ] Add admin dashboard analytics visualizations.
+45. [x] Home polish pass (CTA copy, nav UX, pricing/dashboard placeholders, FAQ clarity).
+46. [ ] Connect /search to backend for live results and filters.
+47. [ ] Implement full pricing page and Stripe plan selection.
+48. [ ] Implement real signup flow (UI + API).
+49. [ ] Add admin dashboard analytics visualizations.

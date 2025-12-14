@@ -25,24 +25,41 @@ export default function TopNav() {
     router.refresh();
   };
 
+  const goDashboard = () => {
+    if (token) {
+      router.push("/dashboard");
+    } else {
+      router.push("/login?next=/dashboard");
+    }
+  };
+
   return (
     <nav className="flex items-center justify-between py-4">
       <Link href="/" className="text-xl font-semibold tracking-tight text-slate-50">
         TopFuelAuto
       </Link>
-      <div className="flex items-center gap-3">
-        <Link href="/pricing" className="text-sm text-slate-300 hover:text-white transition">
-          Pricing
-        </Link>
-        <Link href="/dashboard" className="text-sm text-slate-300 hover:text-white transition">
-          Dashboard
-        </Link>
+      <div className="flex items-center gap-2">
+        {!token && (
+          <Button onClick={() => router.push("/search")}>
+            Start searching
+          </Button>
+        )}
+        {!token && (
+          <Button variant="ghost" className="border border-slate-700" onClick={() => router.push("/pricing")}>
+            Pricing
+          </Button>
+        )}
+        {token && (
+          <Button variant="ghost" className="border border-slate-700" onClick={goDashboard}>
+            Dashboard
+          </Button>
+        )}
         {token ? (
           <Button variant="ghost" className="border border-slate-700" onClick={onSignOut}>
             Sign out
           </Button>
         ) : (
-          <LoginDialog onLoggedIn={(val) => setToken(val)} triggerVariant="ghost" />
+          <LoginDialog onLoggedIn={(val) => setToken(val)} triggerVariant="ghost" label="Sign in" />
         )}
       </div>
     </nav>

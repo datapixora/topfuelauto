@@ -61,7 +61,7 @@ const faqs = [
   },
   {
     q: "Which markets are covered?",
-    a: "Major US, EU, and Middle East auction sources first, with more providers added regularly.",
+    a: "Coverage expands as providers are added via adapters. We start with major auctions and classifieds.",
   },
   {
     q: "How is the deal score built?",
@@ -108,7 +108,7 @@ export default function HomePage() {
               Find vehicles worldwide. Understand the real deal before you bid.
             </h1>
             <p className="text-lg text-slate-300">
-              Search across sources, get a deal score, risk flags, and a landed cost estimate. We never handle vehicle purchase money.
+              Search listings, score deals, flag risks, and estimate landed cost - rule-based first.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -116,7 +116,7 @@ export default function HomePage() {
               href="/search"
               className="inline-flex items-center rounded-md bg-brand-accent px-5 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-110"
             >
-              Start Searching
+              Start searching (Free)
             </Link>
             <Link
               href="/pricing"
@@ -124,6 +124,9 @@ export default function HomePage() {
             >
               See Plans
             </Link>
+          </div>
+          <div className="text-xs text-slate-400">
+            No credit card. We never handle vehicle purchase money.
           </div>
           <div className="text-xs font-medium uppercase tracking-wide text-slate-400">
             Not a seller | Not a financial intermediary | Stripe subscriptions only

@@ -12,9 +12,10 @@ import { Label } from "../ui/label";
 
 type LoginFormProps = {
   onSuccess?: (token: string) => void;
+  redirectTo?: string;
 };
 
-export default function LoginForm({ onSuccess }: LoginFormProps) {
+export default function LoginForm({ onSuccess, redirectTo }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +30,8 @@ export default function LoginForm({ onSuccess }: LoginFormProps) {
       const res = await login(email, password);
       setToken(res.access_token);
       onSuccess?.(res.access_token);
-      router.push("/search");
+      const target = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/search";
+      router.push(target);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to sign in.";
       setError(message || "Unable to sign in.");
