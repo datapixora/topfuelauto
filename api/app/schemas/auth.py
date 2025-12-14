@@ -31,4 +31,10 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     email: EmailStr
-    is_pro: bool
+    is_active: bool | None = None
+    is_admin: bool | None = None
+    plan_id: int | None = None
+    plan_name: str | None = None
+    plan_key: str | None = None
+    plan_searches_per_day: int | None = None
+    is_pro: bool | None = None  # deprecated

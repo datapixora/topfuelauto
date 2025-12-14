@@ -15,7 +15,7 @@ from app.providers import get_active_providers
 from app.schemas import search as search_schema
 from app.services import search_service
 from app.services import usage_service
-from app.models.plan import Plan
+from app.services import plan_service
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
@@ -136,15 +136,17 @@ def search(
     # Plan + quota resolution (only for authenticated users)
     plan_limit = None
     quota_message = "Daily search limit reached. Upgrade to continue."
+    active_plan = None
     if current_user:
-        plan_key = "pro" if getattr(current_user, "is_pro", False) else "free"
-        plan = db.query(Plan).filter(Plan.key == plan_key, Plan.is_active.is_(True)).first()
-        if plan and plan.searches_per_day is not None:
-            plan_limit = plan.searches_per_day
-        elif plan_key == "free":
+        active_plan = plan_service.get_active_plan(db, current_user)
+        if active_plan and active_plan.searches_per_day is not None:
+            plan_limit = active_plan.searches_per_day
+        elif active_plan and active_plan.key == "free":
             plan_limit = DEFAULT_FREE_SEARCHES_PER_DAY  # fail-safe default for free if plan config missing
-        if plan and plan.quota_reached_message:
-            quota_message = plan.quota_reached_message
+        elif not active_plan:
+            plan_limit = DEFAULT_FREE_SEARCHES_PER_DAY
+        if active_plan and active_plan.quota_reached_message:
+            quota_message = active_plan.quota_reached_message
 
     if current_user and plan_limit is not None:
         usage = usage_service.get_or_create_today_usage(db, current_user.id)

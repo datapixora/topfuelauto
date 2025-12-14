@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.schemas import auth as auth_schema
 from app.services import auth_service
+from app.services import plan_service
 from app.core.security import get_current_user
 from app.services import usage_service
 from app.models.plan import Plan
@@ -27,16 +28,29 @@ def login(payload: auth_schema.UserLogin, db: Session = Depends(get_db)):
 
 
 @router.get("/me", response_model=auth_schema.UserOut)
-def me(current_user=Depends(get_current_user)):
-    return current_user
+def me(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    plan = plan_service.get_active_plan(db, current_user)
+    plan_limit = plan.searches_per_day if plan and plan.searches_per_day is not None else None
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "is_active": current_user.is_active,
+        "is_admin": current_user.is_admin,
+        "plan_id": plan.id if plan else None,
+        "plan_name": plan.name if plan else None,
+        "plan_key": plan.key if plan else None,
+        "plan_searches_per_day": plan_limit,
+        "is_pro": None,
+    }
 
 
 @router.get("/me/quota")
 def quota(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    plan_key = "pro" if getattr(current_user, "is_pro", False) else "free"
-    plan = db.query(Plan).filter(Plan.key == plan_key, Plan.is_active.is_(True)).first()
+    plan = plan_service.get_active_plan(db, current_user)
     plan_limit = plan.searches_per_day if plan and plan.searches_per_day is not None else None
-    if plan_limit is None and plan_key == "free":
+    if plan_limit is None and plan and plan.key == "free":
+        plan_limit = 5
+    if plan_limit is None and not plan:
         plan_limit = 5
 
     usage = usage_service.get_or_create_today_usage(db, current_user.id)

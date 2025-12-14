@@ -18,7 +18,7 @@ import {
 } from "recharts";
 
 type UserDetailResponse = {
-  user: { id: number; email: string; is_active: boolean; is_admin: boolean; is_pro: boolean; created_at: string | null };
+  user: { id: number; email: string; is_active: boolean; is_admin: boolean; created_at: string | null };
   plan: { id: number | null; name: string | null; searches_per_day: number | null };
   quota: { limit: number | null; used: number; remaining: number | null; reset_at: string | null };
   usage_7d: { date: string; search_count: number }[];
@@ -73,7 +73,7 @@ export default function AdminUserDetail() {
         <div className="flex gap-2">
           {data?.user.is_active ? <Badge label="Active" color="green" /> : <Badge label="Disabled" color="red" />}
           {data?.user.is_admin && <Badge label="Admin" color="blue" />}
-          {data?.user.is_pro ? <Badge label="Pro plan" color="blue" /> : <Badge label="Free plan" color="green" />}
+          {data?.plan?.name && <Badge label={`${data.plan.name} plan`} color="blue" />}
         </div>
       </div>
 

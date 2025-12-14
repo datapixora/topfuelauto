@@ -62,7 +62,16 @@ def metrics_users(range: str = "30d", db: Session = Depends(get_db), admin: User
         "range": range,
         "total": total,
         "users": [
-            {"id": u.id, "email": u.email, "is_pro": u.is_pro, "is_admin": u.is_admin, "is_active": u.is_active}
+            (
+                lambda plan: {
+                    "id": u.id,
+                    "email": u.email,
+                    "is_admin": u.is_admin,
+                    "is_active": u.is_active,
+                    "plan_id": plan.id if plan else None,
+                    "plan_name": plan.name if plan else None,
+                }
+            )(plan_service.get_active_plan(db, u))
             for u in users
         ],
     }
@@ -256,7 +265,6 @@ def metrics_upgrade_candidates(
         db.query(
             User.id,
             User.email,
-            User.is_pro,
             quota_hits.c.quota_hits,
             quota_hits.c.last_hit,
             quota_hits.c.first_hit,
@@ -271,8 +279,9 @@ def metrics_upgrade_candidates(
 
     result = []
     for row in rows:
-        plan_key = "pro" if row.is_pro else "free"
-        plan_info = plans.get(plan_key, {"id": None, "name": plan_key})
+        active_plan = plan_service.get_active_plan(db, db.get(User, row.id))
+        plan_key = active_plan.key if active_plan else "free"
+        plan_info = {"id": active_plan.id if active_plan else None, "name": active_plan.name if active_plan else plan_key}
         result.append(
             {
                 "user_id": row.id,
@@ -336,8 +345,7 @@ def update_user_plan(
     if not plan or not plan.is_active:
         raise HTTPException(status_code=400, detail="Plan not found or inactive")
 
-    user.is_pro = plan.key == "pro"
-    db.add(user)
+    plan_service.assign_plan(db, user, plan)
     db.add(
         AdminActionLog(
             admin_user_id=admin.id,
@@ -352,7 +360,7 @@ def update_user_plan(
         db.rollback()
         raise HTTPException(status_code=400, detail="Could not update plan")
     db.refresh(user)
-    return {"id": user.id, "email": user.email, "is_pro": user.is_pro, "plan_key": plan.key, "plan_name": plan.name}
+    return {"id": user.id, "email": user.email, "plan_key": plan.key, "plan_name": plan.name, "plan_id": plan.id}
 
 
 @router.get("/users/{user_id}/detail")
@@ -362,10 +370,11 @@ def admin_user_detail_full(user_id: int, db: Session = Depends(get_db), admin: U
         raise HTTPException(status_code=404, detail="User not found")
 
     # plan resolution
-    plan_key = "pro" if user.is_pro else "free"
-    plan = db.query(Plan).filter(Plan.key == plan_key, Plan.is_active.is_(True)).first()
+    plan = plan_service.get_active_plan(db, user)
     plan_limit = plan.searches_per_day if plan and plan.searches_per_day is not None else None
-    if plan_limit is None and plan_key == "free":
+    if plan_limit is None and plan and plan.key == "free":
+        plan_limit = 5
+    if plan_limit is None and not plan:
         plan_limit = 5
 
     usage_today = usage_service.get_or_create_today_usage(db, user.id)
@@ -430,7 +439,6 @@ def admin_user_detail_full(user_id: int, db: Session = Depends(get_db), admin: U
             "email": user.email,
             "is_active": user.is_active,
             "is_admin": user.is_admin,
-            "is_pro": user.is_pro,
             "created_at": user.created_at.isoformat() if user.created_at else None,
         },
         "plan": {"id": plan.id if plan else None, "name": plan.name if plan else plan_key, "searches_per_day": plan_limit},
@@ -451,7 +459,7 @@ def admin_user_detail(user_id: int, db: Session = Depends(get_db), admin: User =
     user = db.get(User, user_id)
     if not user:
         return {"error": "not found"}
-    return {"id": user.id, "email": user.email, "is_pro": user.is_pro, "is_admin": user.is_admin, "is_active": user.is_active}
+    return {"id": user.id, "email": user.email, "is_admin": user.is_admin, "is_active": user.is_active}
 
 
 @router.get("/subscriptions")

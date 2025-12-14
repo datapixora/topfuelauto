@@ -4,6 +4,8 @@ from fastapi import HTTPException, status
 
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.models.user import User
+from app.services import plan_service
+from app.models.plan import Plan
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,10 @@ def create_user(db: Session, email: str, password: str) -> User:
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     user = User(email=email, password_hash=get_password_hash(password))
+    # assign default free plan if available
+    free_plan = db.query(Plan).filter(Plan.key == "free", Plan.is_active.is_(True)).first()
+    if free_plan:
+        user.current_plan_id = free_plan.id
     db.add(user)
     db.commit()
     db.refresh(user)

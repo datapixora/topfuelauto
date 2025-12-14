@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.services import plan_service
 from app.services import vin_service
 from app.schemas import vin as vin_schema
 
@@ -17,7 +18,8 @@ def decode_vin(vin: str, db: Session = Depends(get_db)):
 
 @router.get("/history", response_model=vin_schema.VinHistoryResponse)
 def vin_history(vin: str, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if not current_user.is_pro:
+    plan = plan_service.get_active_plan(db, current_user)
+    if not plan or plan.key != "pro":
         raise HTTPException(status_code=403, detail="Pro subscription required")
     result = vin_service.history_vin(db, vin)
     return result

@@ -61,6 +61,18 @@
 59. [x] Admin quota funnel analytics with upgrade candidates.
 60. [x] Admin user management v1 (plan changes, deactivate/reactivate).
 61. [x] Admin user detail cockpit (quota, usage, searches, actions).
+62. [x] Remove is_pro as source of truth (plan-based enforcement).
+
+## is_pro removal audit
+- [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
+- [x] api/app/routers/search.py uses plan resolver
+- [x] api/app/routers/admin.py removed is_pro usage
+- [x] api/app/routers/vin.py uses plan resolver
+- [x] api/app/schemas/auth.py marks is_pro deprecated
+- [x] api/app/schemas/user.py marks is_pro deprecated
+- [x] api/app/models/user.py defines is_pro (legacy only, not used)
+- [x] web/src/app/admin/users/page.tsx uses plan info
+- [x] web/src/app/admin/users/[id]/page.tsx uses plan info
 
 Next steps:
 - [ ] Admin: refund/credit tools (future)

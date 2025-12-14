@@ -10,9 +10,10 @@ import { apiGet, authHeaders, API_BASE } from "../../../lib/api";
 type UserRow = {
   id: number;
   email: string;
-  is_pro: boolean;
   is_admin: boolean;
   is_active: boolean;
+  plan_id: number | null;
+  plan_name: string | null;
 };
 
 type PlanRow = { id: number; name: string; key: string };
@@ -44,11 +45,6 @@ export default function AdminUsers() {
   useEffect(() => {
     void load();
   }, []);
-
-  const planName = (u: UserRow) => {
-    if (u.is_pro) return "Pro";
-    return "Free";
-  };
 
   const changeStatus = async (userId: number, isActive: boolean) => {
     if (!window.confirm(isActive ? "Reactivate this user?" : "Deactivate this user?")) return;
@@ -128,11 +124,7 @@ export default function AdminUsers() {
                 <TD>
                   <select
                     className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm"
-                    value={
-                      plans.find((p) => (u.is_pro ? p.key === "pro" : p.key === "free"))?.id ??
-                      plans[0]?.id ??
-                      ""
-                    }
+                    value={u.plan_id ?? plans.find((p) => p.key === "free")?.id ?? ""}
                     onChange={(e) => changePlan(u.id, Number(e.target.value))}
                     disabled={saving === u.id}
                   >
