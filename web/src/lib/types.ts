@@ -107,6 +107,7 @@ export type AssistCard = {
   progress_percent: number;
   last_activity_at?: string | null;
   next_run_at?: string | null;
+  is_active?: boolean;
 };
 
 export type AssistCase = {

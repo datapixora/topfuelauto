@@ -26,6 +26,7 @@ def _today() -> datetime.date:
 def _reset_runs(case: AssistCase):
     if case.last_run_at and case.last_run_at.date() != _today():
         case.runs_today = 0
+        case.updated_at = datetime.utcnow()
 
 
 def plan_limits(plan: Optional[Plan]) -> dict:
@@ -104,6 +105,8 @@ def _compute_next_run(case: AssistCase, limits: dict):
 
 
 def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
+    if case.status == "running":
+        return case
     plan = plan_service.get_active_plan(db, user)
     limits = plan_limits(plan)
 

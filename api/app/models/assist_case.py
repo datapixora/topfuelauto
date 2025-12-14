@@ -22,5 +22,6 @@ class AssistCase(Base):
     budget_cents_limit = Column(Integer, nullable=True)
     budget_cents_used = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
+    enqueue_locked_until = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)

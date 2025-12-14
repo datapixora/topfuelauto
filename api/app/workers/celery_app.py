@@ -10,9 +10,9 @@ celery_app = Celery(
 )
 
 celery_app.conf.beat_schedule = {
-    "placeholder-task": {
-        "task": "app.workers.tasks.placeholder",
-        "schedule": 3600,
+    "assist-watch-enqueue": {
+        "task": "app.workers.assist.enqueue_due_watch_cases",
+        "schedule": 120,
         "args": (),
     }
 }
