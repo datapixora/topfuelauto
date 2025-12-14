@@ -47,3 +47,41 @@ export type SearchOverview = {
 export async function fetchSearchOverview(): Promise<SearchOverview> {
   return apiGet<SearchOverview>("/admin/metrics/overview");
 }
+
+export type QuotaSeriesPoint = {
+  date: string;
+  quota_exceeded_events: number;
+  users_hit_quota: number;
+};
+
+export type QuotaMetrics = {
+  today: { quota_exceeded_events: number; users_hit_quota: number };
+  last_7d: { quota_exceeded_events: number; users_hit_quota: number };
+  series_7d: QuotaSeriesPoint[];
+};
+
+export async function fetchQuotaMetrics(): Promise<QuotaMetrics> {
+  return apiGet<QuotaMetrics>("/admin/metrics/quota");
+}
+
+export type UpgradeCandidate = {
+  user_id: number;
+  email: string;
+  plan: { id: number | null; name: string | null };
+  quota_exceeded_count: number;
+  total_searches: number;
+  last_quota_hit_at: string | null;
+  first_quota_hit_at?: string | null;
+};
+
+export type UpgradeCandidatesResponse = {
+  range_days: number;
+  limit: number;
+  items: UpgradeCandidate[];
+};
+
+export async function fetchUpgradeCandidates(days = 7, limit = 50): Promise<UpgradeCandidatesResponse> {
+  return apiGet<UpgradeCandidatesResponse>(
+    `/admin/metrics/upgrade-candidates?days=${encodeURIComponent(days)}&limit=${encodeURIComponent(limit)}`
+  );
+}

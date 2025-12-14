@@ -9,6 +9,7 @@ from app.models.search_event import SearchEvent
 from app.models.user import User
 from app.models.broker_lead import BrokerLead
 from app.models.listing import Listing
+from app.models.plan import Plan
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -155,6 +156,123 @@ def metrics_searches(range: str = "30d", db: Session = Depends(get_db), admin: U
 def providers_status(admin: User = Depends(get_current_admin)):
     # TODO: wire to real provider sync status
     return {"providers": []}
+
+
+@router.get("/metrics/quota")
+def metrics_quota(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    since_7d = now - timedelta(days=7)
+
+    def quota_base_query():
+        return db.query(SearchEvent).filter(SearchEvent.error_code == "quota_exceeded")
+
+    today_q = quota_base_query().filter(SearchEvent.created_at >= today_start)
+    seven_q = quota_base_query().filter(SearchEvent.created_at >= since_7d)
+
+    today_events = today_q.count()
+    today_users = today_q.filter(SearchEvent.user_id.isnot(None)).with_entities(func.count(func.distinct(SearchEvent.user_id))).scalar() or 0
+
+    seven_events = seven_q.count()
+    seven_users = seven_q.filter(SearchEvent.user_id.isnot(None)).with_entities(func.count(func.distinct(SearchEvent.user_id))).scalar() or 0
+
+    bucket = func.date_trunc("day", SearchEvent.created_at)
+    series_rows = (
+        db.query(
+            bucket.label("bucket"),
+            func.count().label("quota_hits"),
+            func.count(func.distinct(SearchEvent.user_id)).label("users"),
+        )
+        .filter(SearchEvent.error_code == "quota_exceeded", SearchEvent.created_at >= since_7d)
+        .group_by(bucket)
+        .order_by(bucket)
+        .all()
+    )
+    series = [
+        {
+            "date": b.date().isoformat() if hasattr(b, "date") else b.isoformat(),
+            "quota_exceeded_events": int(q or 0),
+            "users_hit_quota": int(u or 0),
+        }
+        for b, q, u in series_rows
+    ]
+
+    return {
+        "today": {"quota_exceeded_events": today_events, "users_hit_quota": today_users},
+        "last_7d": {"quota_exceeded_events": seven_events, "users_hit_quota": seven_users},
+        "series_7d": series,
+    }
+
+
+@router.get("/metrics/upgrade-candidates")
+def metrics_upgrade_candidates(
+    days: int = 7,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    days = max(1, min(days, 60))
+    limit = max(1, min(limit, 200))
+    since = datetime.utcnow() - timedelta(days=days)
+
+    quota_hits = (
+        db.query(
+            SearchEvent.user_id.label("user_id"),
+            func.count().label("quota_hits"),
+            func.max(SearchEvent.created_at).label("last_hit"),
+            func.min(SearchEvent.created_at).label("first_hit"),
+        )
+        .filter(SearchEvent.created_at >= since, SearchEvent.error_code == "quota_exceeded", SearchEvent.user_id.isnot(None))
+        .group_by(SearchEvent.user_id)
+        .subquery()
+    )
+
+    total_searches = (
+        db.query(
+            SearchEvent.user_id.label("user_id"),
+            func.count().label("searches"),
+        )
+        .filter(SearchEvent.created_at >= since, SearchEvent.user_id.isnot(None))
+        .group_by(SearchEvent.user_id)
+        .subquery()
+    )
+
+    plans = {p.key: {"id": p.id, "name": p.name} for p in db.query(Plan).all()}
+
+    rows = (
+        db.query(
+            User.id,
+            User.email,
+            User.is_pro,
+            quota_hits.c.quota_hits,
+            quota_hits.c.last_hit,
+            quota_hits.c.first_hit,
+            total_searches.c.searches,
+        )
+        .join(quota_hits, quota_hits.c.user_id == User.id)
+        .outerjoin(total_searches, total_searches.c.user_id == User.id)
+        .order_by(quota_hits.c.quota_hits.desc(), quota_hits.c.last_hit.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for row in rows:
+        plan_key = "pro" if row.is_pro else "free"
+        plan_info = plans.get(plan_key, {"id": None, "name": plan_key})
+        result.append(
+            {
+                "user_id": row.id,
+                "email": row.email,
+                "plan": plan_info,
+                "quota_exceeded_count": int(row.quota_hits or 0),
+                "total_searches": int(row.searches or 0),
+                "last_quota_hit_at": row.last_hit.isoformat() if row.last_hit else None,
+                "first_quota_hit_at": row.first_hit.isoformat() if row.first_hit else None,
+            }
+        )
+
+    return {"range_days": days, "limit": limit, "items": result}
 
 
 @router.get("/users/{user_id}")

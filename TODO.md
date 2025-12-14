@@ -58,6 +58,12 @@
 56. [x] User signup MVP (email/password) live.
 57. [x] Fix quota decrement only on non-zero results.
 58. [x] Fix quota banner loading state and persistence on return.
+59. [x] Admin quota funnel analytics with upgrade candidates.
+
+Next steps:
+- [ ] Add conversion tracking: upgrades after quota hit
+- [ ] Email/notification outreach to upgrade candidates
+- [ ] Feature gating v1
 
 Next steps:
 - [ ] Password reset flow
