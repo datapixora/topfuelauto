@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text, case
+from datetime import datetime, timedelta
 
 from app.core.database import get_db
 from app.core.security import get_current_admin
@@ -10,6 +11,19 @@ from app.models.broker_lead import BrokerLead
 from app.models.listing import Listing
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+def _range_start(range: str) -> datetime:
+    now = datetime.utcnow()
+    if range == "24h":
+        return now - timedelta(hours=24)
+    if range == "7d":
+        return now - timedelta(days=7)
+    if range == "30d":
+        return now - timedelta(days=30)
+    if range == "90d":
+        return now - timedelta(days=90)
+    return now - timedelta(days=7)
 
 
 @router.get("/metrics/overview")
@@ -48,20 +62,93 @@ def metrics_subscriptions(range: str = "30d", admin: User = Depends(get_current_
 
 @router.get("/metrics/searches")
 def metrics_searches(range: str = "30d", db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    since = _range_start(range)
+
+    query_expr = func.coalesce(SearchEvent.query_normalized, SearchEvent.query_raw)
+
     top = (
         db.query(
-            func.coalesce(SearchEvent.query_normalized, SearchEvent.query_raw).label("q"),
-            SearchEvent.result_count,
+            query_expr.label("query"),
+            func.count().label("count"),
+            func.sum(case((SearchEvent.result_count == 0, 1), else_=0)).label("zero_count"),
         )
-        .order_by(SearchEvent.created_at.desc())
+        .filter(SearchEvent.created_at >= since)
+        .group_by(query_expr)
+        .order_by(func.count().desc())
         .limit(20)
         .all()
     )
-    top_list = []
-    for q, rc in top:
-        query_val = q or ""
-        top_list.append({"query": query_val, "results_count": rc})
-    return {"range": range, "top_queries": top_list, "series": []}
+    top_list = [{"query": q or "", "count": cnt or 0, "zero_count": zc or 0} for q, cnt, zc in top]
+
+    zero_queries = (
+        db.query(
+            query_expr.label("query"),
+            func.count().label("count"),
+        )
+        .filter(SearchEvent.created_at >= since, SearchEvent.result_count == 0)
+        .group_by(query_expr)
+        .order_by(func.count().desc())
+        .limit(20)
+        .all()
+    )
+    zero_list = [{"query": q or "", "count": cnt or 0} for q, cnt in zero_queries]
+
+    bucket = func.date_trunc("day", SearchEvent.created_at)
+    series_rows = (
+        db.query(
+            bucket.label("bucket"),
+            func.count().label("searches"),
+            func.sum(case((SearchEvent.result_count == 0, 1), else_=0)).label("zero_results"),
+            func.sum(case((SearchEvent.status == "error", 1), else_=0)).label("errors"),
+        )
+        .filter(SearchEvent.created_at >= since)
+        .group_by(bucket)
+        .order_by(bucket)
+        .all()
+    )
+    series = [
+        {
+            "bucket": b.isoformat() if b else "",
+            "searches": int(s or 0),
+            "zero_results": int(z or 0),
+            "errors": int(e or 0),
+        }
+        for b, s, z, e in series_rows
+    ]
+
+    providers_sql = text(
+        """
+        select
+          provider,
+          count(*) as count,
+          sum(case when status = 'error' then 1 else 0 end) as error_count,
+          sum(case when cache_hit is true then 1 else 0 end) as cache_hits
+        from search_events,
+             lateral jsonb_array_elements_text(coalesce(providers, '[]'::jsonb)) as p(provider)
+        where created_at >= :since
+        group by provider
+        order by count desc
+        limit 20
+        """
+    )
+    provider_rows = db.execute(providers_sql, {"since": since}).fetchall()
+    providers = [
+        {
+            "provider": row.provider,
+            "count": int(row.count or 0),
+            "error_count": int(row.error_count or 0),
+            "cache_hits": int(row.cache_hits or 0),
+        }
+        for row in provider_rows
+    ]
+
+    return {
+        "range": range,
+        "top_queries": top_list,
+        "zero_queries": zero_list,
+        "series": series,
+        "providers": providers,
+    }
 
 
 @router.get("/providers/status")
