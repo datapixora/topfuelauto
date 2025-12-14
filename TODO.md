@@ -63,6 +63,7 @@
 61. [x] Admin user detail cockpit (quota, usage, searches, actions).
 62. [x] Remove is_pro as source of truth (plan-based enforcement).
 63. [x] Stripe v1 monthly+yearly (admin-config) checkout + webhook.
+64. [x] Assist Core v1 with watch mode and prompt skeleton.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
@@ -81,6 +82,9 @@ Next steps:
 - [ ] Show subscription status in user account
 - [ ] Handle proration / upgrades / downgrades
 - [ ] Webhook coverage for subscription updates
+- [ ] Wire real OpenAI/DeepSeek providers
+- [ ] Add watch scheduler beat + alerts
+- [ ] Budget enforcement for Assist calls
 
 Next steps:
 - [ ] Add conversion tracking: upgrades after quota hit

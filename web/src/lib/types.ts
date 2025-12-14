@@ -91,4 +91,49 @@ export type Plan = {
   searches_per_day?: number | null;
   stripe_price_id_monthly?: string | null;
   stripe_price_id_yearly?: string | null;
+  assist_one_shot_per_day?: number | null;
+  assist_watch_enabled?: boolean | null;
+  assist_watch_max_cases?: number | null;
+  assist_watch_runs_per_day?: number | null;
+  assist_ai_budget_cents_per_day?: number | null;
+  assist_reruns_per_day?: number | null;
+};
+
+export type AssistCard = {
+  id: number;
+  title: string;
+  status: string;
+  mode: string;
+  progress_percent: number;
+  last_activity_at?: string | null;
+  next_run_at?: string | null;
+};
+
+export type AssistCase = {
+  id: number;
+  title?: string | null;
+  status: string;
+  mode: string;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type AssistStep = {
+  id: number;
+  step_key: string;
+  status: string;
+  output_json?: any;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export type AssistArtifact = {
+  id: number;
+  type: string;
+  content_text?: string | null;
+  content_json?: any;
+  created_at?: string | null;
 };

@@ -168,6 +168,43 @@ export async function startCheckout(planId: number, interval: "month" | "year"):
   return json.checkout_url;
 }
 
+export async function fetchAssistCards() {
+  return apiGet<{ cards: any[] }>("/assist/cards");
+}
+
+export async function listAssistCases() {
+  return apiGet<{ cases: any[] }>("/assist/cases");
+}
+
+export async function createAssistCase(payload: any) {
+  return apiPost("/assist/cases", payload);
+}
+
+export async function submitAssistCase(id: number) {
+  return apiPost(`/assist/cases/${id}/submit`, {});
+}
+
+export async function cancelAssistCase(id: number) {
+  return apiPost(`/assist/cases/${id}/cancel`, {});
+}
+
+export async function assistCaseDetail(id: number) {
+  return apiGet<{ case: any; steps: any[]; artifacts: any[] }>(`/assist/cases/${id}`);
+}
+
+async function apiPost(path: string, body: any) {
+  const res = await fetch(url(path), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Request failed (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
 export async function requestBid(payload: {
   listing_id: number;
   max_bid?: number;

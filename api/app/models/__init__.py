@@ -9,3 +9,7 @@ from app.models.plan import Plan
 from app.models.daily_usage import DailyUsage
 from app.models.admin_action_log import AdminActionLog
 from app.models.billing_event import BillingEvent
+from app.models.assist_case import AssistCase
+from app.models.assist_step import AssistStep
+from app.models.assist_artifact import AssistArtifact
+from app.models.prompt_template import PromptTemplate
