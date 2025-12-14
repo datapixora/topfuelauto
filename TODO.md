@@ -61,6 +61,7 @@
 - [x] Fix SQLAlchemy coalesce import in admin metrics.
 - [x] Make search_event_analytics migration idempotent (columns/indexes guard).
 - [x] Milestone 3: Admin search analytics UI (charts, range filters).
+- [x] Deduplicate admin search analytics requests (single fetch per range).
 
 ## Analytics Milestones
 - [x] Milestone 1: Harden SearchEvent logging (fields, caching/rate-limit signals, safe errors).

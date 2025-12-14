@@ -36,3 +36,14 @@ export type SearchAnalyticsResponse = {
 export async function fetchSearchAnalytics(range: string): Promise<SearchAnalyticsResponse> {
   return apiGet<SearchAnalyticsResponse>(`/admin/metrics/searches?range=${encodeURIComponent(range)}`);
 }
+
+export type SearchOverview = {
+  total_users?: number;
+  searches_today?: number;
+  zero_results?: number;
+  avg_latency_ms?: number;
+};
+
+export async function fetchSearchOverview(): Promise<SearchOverview> {
+  return apiGet<SearchOverview>("/admin/metrics/overview");
+}

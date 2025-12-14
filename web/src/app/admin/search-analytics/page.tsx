@@ -18,8 +18,10 @@ import { Table, THead, TBody, TR, TH, TD } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
 import {
   fetchSearchAnalytics,
+  fetchSearchOverview,
   ProviderStats,
   SearchAnalyticsResponse,
+  SearchOverview,
   SearchSeriesPoint,
   TopQuery,
   ZeroQuery,
@@ -34,6 +36,7 @@ function SkeletonCard({ height = "200px" }: { height?: string }) {
 export default function AdminSearchAnalytics() {
   const [range, setRange] = useState<string>("7d");
   const [data, setData] = useState<SearchAnalyticsResponse | null>(null);
+  const [overview, setOverview] = useState<SearchOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,8 +44,12 @@ export default function AdminSearchAnalytics() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchSearchAnalytics(selectedRange);
-      setData(res);
+      const [analytics, overviewRes] = await Promise.all([
+        fetchSearchAnalytics(selectedRange),
+        fetchSearchOverview(),
+      ]);
+      setData(analytics);
+      setOverview(overviewRes);
     } catch (e: any) {
       setError(e.message || "Failed to load analytics");
     } finally {
@@ -75,6 +82,35 @@ export default function AdminSearchAnalytics() {
       </div>
 
       {error && <div className="text-red-400 text-sm">Error: {error}</div>}
+
+      {overview && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs uppercase text-slate-400">Searches</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold">{overview.searches_today ?? 0}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs uppercase text-slate-400">Zero results</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold">{overview.zero_results ?? 0}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs uppercase text-slate-400">Avg latency (ms)</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold">{overview.avg_latency_ms ?? 0}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs uppercase text-slate-400">Users</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold">{overview.total_users ?? 0}</CardContent>
+          </Card>
+        </div>
+      )}
 
       {loading && (
         <div className="grid gap-4 md:grid-cols-2">

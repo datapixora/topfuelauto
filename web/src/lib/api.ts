@@ -121,12 +121,30 @@ export async function decodeVin(vin: string) {
   return res.json();
 }
 
+const inFlight = new Map<string, Promise<any>>();
+
 export async function apiGet<T = any>(path: string, init?: RequestInit): Promise<T> {
   const absolute = path.startsWith("http") ? path : url(path);
-  const res = await fetch(absolute, {
+  const method = (init?.method || "GET").toUpperCase();
+  const key = `${method} ${absolute}`;
+
+  if (inFlight.has(key)) {
+    return inFlight.get(key) as Promise<T>;
+  }
+
+  const promise = fetch(absolute, {
     ...init,
+    method,
     headers: { ...(init?.headers || {}), ...authHeaders() },
+  }).then(async (res) => {
+    inFlight.delete(key);
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    return res.json();
+  }).catch((err) => {
+    inFlight.delete(key);
+    throw err;
   });
-  if (!res.ok) throw new Error(`Request failed (${res.status})`);
-  return res.json();
+
+  inFlight.set(key, promise);
+  return promise;
 }
