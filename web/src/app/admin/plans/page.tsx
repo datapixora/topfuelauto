@@ -15,6 +15,8 @@ type Plan = {
   features?: Record<string, any> | null;
   quotas?: Record<string, any> | null;
   is_active: boolean;
+  searches_per_day?: number | null;
+  quota_reached_message?: string | null;
 };
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -49,7 +51,14 @@ export default function AdminPlans() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: "", price: "", features: "{}", quotas: "{}" });
+  const [form, setForm] = useState({
+    name: "",
+    price: "",
+    features: "{}",
+    quotas: "{}",
+    searches_per_day: "",
+    quota_reached_message: "",
+  });
   const [parseError, setParseError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState<Record<number, boolean>>({});
@@ -88,6 +97,8 @@ export default function AdminPlans() {
       price: plan.price_monthly == null ? "" : String(plan.price_monthly),
       features: JSON.stringify(plan.features || {}, null, 2),
       quotas: JSON.stringify(plan.quotas || {}, null, 2),
+      searches_per_day: plan.searches_per_day == null ? "" : String(plan.searches_per_day),
+      quota_reached_message: plan.quota_reached_message || "",
     });
     setParseError(null);
     setSuccess(null);
@@ -103,6 +114,8 @@ export default function AdminPlans() {
       price: plan.price_monthly == null ? "" : String(plan.price_monthly),
       features: JSON.stringify(plan.features || {}, null, 2),
       quotas: JSON.stringify(plan.quotas || {}, null, 2),
+      searches_per_day: plan.searches_per_day == null ? "" : String(plan.searches_per_day),
+      quota_reached_message: plan.quota_reached_message || "",
     });
     setParseError(null);
     setError(null);
@@ -132,6 +145,13 @@ export default function AdminPlans() {
       setParseError("Price must be a number or blank");
       return;
     }
+    const searchesTrim = form.searches_per_day.trim();
+    const searchesVal = searchesTrim === "" ? null : Number(searchesTrim);
+    if (searchesTrim !== "" && (!Number.isFinite(searchesVal) || Number.isNaN(searchesVal) || searchesVal < 0)) {
+      setParseError("Searches per day must be a non-negative number or blank");
+      return;
+    }
+    const quotaMsg = form.quota_reached_message.trim();
 
     setSaving(true);
     setError(null);
@@ -144,6 +164,8 @@ export default function AdminPlans() {
           price_monthly: priceVal,
           features: featuresObj,
           quotas: quotasObj,
+          searches_per_day: searchesVal,
+          quota_reached_message: quotaMsg === "" ? null : quotaMsg,
         }),
       });
       if (!res.ok) {
@@ -253,6 +275,25 @@ export default function AdminPlans() {
                   </div>
                 </div>
 
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Usage limits</div>
+                  <div className="mt-1 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-200">Searches per day</span>
+                      <span className="text-slate-100 font-mono">
+                        {plan.searches_per_day === null || plan.searches_per_day === undefined
+                          ? "-"
+                          : plan.searches_per_day}
+                      </span>
+                    </div>
+                    {plan.quota_reached_message && (
+                      <div className="text-xs text-slate-400">
+                        Message: <span className="text-slate-200">{plan.quota_reached_message}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {showAdvanced && (
                   <div className="rounded border border-slate-800 bg-slate-950 px-3 py-2">
                     <div className="flex items-center justify-between text-xs text-slate-400">
@@ -324,6 +365,16 @@ export default function AdminPlans() {
               <div className="text-xs text-slate-500">Numbers only; leave blank for free plans.</div>
             </label>
             <label className="block space-y-1">
+              <div className="text-slate-200">Searches per day (quota)</div>
+              <input
+                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                value={form.searches_per_day}
+                onChange={(e) => setForm({ ...form, searches_per_day: e.target.value })}
+                placeholder="Leave blank for unlimited"
+              />
+              <div className="text-xs text-slate-500">Must be a non-negative integer; leave blank for unlimited.</div>
+            </label>
+            <label className="block space-y-1">
               <div className="text-slate-200">Features (JSON object)</div>
               <textarea
                 className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 font-mono text-xs min-h-[120px]"
@@ -340,6 +391,17 @@ export default function AdminPlans() {
                 onChange={(e) => setForm({ ...form, quotas: e.target.value })}
               />
               <div className="text-xs text-slate-500">Example: {'{ "searches_per_day": 100 }'}</div>
+            </label>
+            <label className="block space-y-1">
+              <div className="text-slate-200">Quota reached message (optional)</div>
+              <textarea
+                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"
+                value={form.quota_reached_message}
+                onChange={(e) => setForm({ ...form, quota_reached_message: e.target.value })}
+                placeholder="Daily search limit reached. Upgrade to continue."
+                maxLength={2800}
+              />
+              <div className="text-xs text-slate-500">Shown to users when they hit the daily search limit.</div>
             </label>
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" onClick={() => setEditId(null)} disabled={saving}>

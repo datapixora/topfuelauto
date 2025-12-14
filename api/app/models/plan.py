@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -16,5 +16,7 @@ class Plan(Base):
     price_monthly = Column(Integer, nullable=True)
     features = Column(JSONB, nullable=True)
     quotas = Column(JSONB, nullable=True)
+    searches_per_day = Column(Integer, nullable=True)
+    quota_reached_message = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

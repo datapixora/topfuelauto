@@ -1,9 +1,11 @@
 import time
 import uuid
 from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Dict, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -12,12 +14,15 @@ from app.core.security import get_optional_user
 from app.providers import get_active_providers
 from app.schemas import search as search_schema
 from app.services import search_service
+from app.services import usage_service
+from app.models.plan import Plan
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
 CACHE_TTL_SECONDS = 45
 RATE_LIMIT_WINDOW_SECONDS = 60
 RATE_LIMIT_MAX_REQUESTS = 60
+DEFAULT_FREE_SEARCHES_PER_DAY = 5
 
 _search_cache: Dict[str, Tuple[float, search_schema.SearchResponse]] = {}
 _rate_limit: Dict[str, list[float]] = defaultdict(list)
@@ -109,7 +114,7 @@ def search(
         try:
             search_service.log_search_event(
                 db,
-                user_id=getattr(current_user, "id", None) if current_user else None,
+                user_id=user_id,
                 session_id=session_id,
                 query_raw=query_raw,
                 query_normalized=query_normalized,
@@ -125,6 +130,55 @@ def search(
         finally:
             response.headers["X-Cache"] = "MISS"
         raise
+
+    user_id = getattr(current_user, "id", None) if current_user else None
+
+    # Plan + quota resolution (only for authenticated users)
+    plan_limit = None
+    quota_message = "Daily search limit reached. Upgrade to continue."
+    if current_user:
+        plan_key = "pro" if getattr(current_user, "is_pro", False) else "free"
+        plan = db.query(Plan).filter(Plan.key == plan_key, Plan.is_active.is_(True)).first()
+        if plan and plan.searches_per_day is not None:
+            plan_limit = plan.searches_per_day
+        elif plan_key == "free":
+            plan_limit = DEFAULT_FREE_SEARCHES_PER_DAY  # fail-safe default for free if plan config missing
+        if plan and plan.quota_reached_message:
+            quota_message = plan.quota_reached_message
+
+    if current_user and plan_limit is not None:
+        usage = usage_service.get_or_create_today_usage(db, current_user.id)
+        if usage.search_count >= plan_limit:
+            reset_at = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            payload = {
+                "detail": quota_message,
+                "code": "quota_exceeded",
+                "limit": plan_limit,
+                "used": usage.search_count,
+                "remaining": max(plan_limit - usage.search_count, 0),
+                "reset_at": reset_at.isoformat(),
+            }
+            try:
+                search_service.log_search_event(
+                    db,
+                    user_id=user_id,
+                    session_id=session_id,
+                    query_raw=query_raw,
+                    query_normalized=query_normalized,
+                    filters=filters,
+                    providers=[],
+                    result_count=0,
+                    latency_ms=None,
+                    cache_hit=False,
+                    rate_limited=False,
+                    status="error",
+                    error_code="quota_exceeded",
+                )
+            except Exception:
+                pass
+            resp = JSONResponse(status_code=429, content=payload)
+            resp.headers["X-Cache"] = "MISS"
+            return resp
 
     cache_key = _make_cache_key(
         client_ip,
@@ -145,9 +199,11 @@ def search(
     if cached and now - cached[0] <= CACHE_TTL_SECONDS:
         response.headers["X-Cache"] = "HIT"
         try:
+            if current_user:
+                usage_service.increment_search_usage(db, current_user.id)
             search_service.log_search_event(
                 db,
-                user_id=getattr(current_user, "id", None) if current_user else None,
+                user_id=user_id,
                 session_id=session_id,
                 query_raw=query_raw,
                 query_normalized=query_normalized,
@@ -192,7 +248,7 @@ def search(
         try:
             search_service.log_search_event(
                 db,
-                user_id=getattr(current_user, "id", None) if current_user else None,
+                user_id=user_id,
                 session_id=session_id,
                 query_raw=query_raw,
                 query_normalized=query_normalized,
@@ -223,9 +279,11 @@ def search(
     _search_cache[cache_key] = (now, response_body)
 
     try:
+        if current_user:
+            usage_service.increment_search_usage(db, current_user.id)
         search_service.log_search_event(
             db,
-            user_id=getattr(current_user, "id", None) if current_user else None,
+            user_id=user_id,
             session_id=session_id,
             query_raw=query_raw,
             query_normalized=query_normalized,

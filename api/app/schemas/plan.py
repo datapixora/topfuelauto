@@ -12,6 +12,8 @@ class PlanOut(BaseModel):
     description: Optional[str] = None
     features: Optional[Dict[str, Any]] = None
     quotas: Optional[Dict[str, Any]] = None
+    searches_per_day: Optional[int] = None
+    quota_reached_message: Optional[str] = None
     is_active: bool
     created_at: datetime
 
@@ -25,6 +27,8 @@ class PlanUpdate(BaseModel):
     description: Optional[str] = None
     features: Optional[Dict[str, Any]] = None
     quotas: Optional[Dict[str, Any]] = None
+    searches_per_day: Optional[int] = None
+    quota_reached_message: Optional[str] = None
     is_active: Optional[bool] = None
 
     @validator("features", "quotas")
@@ -33,6 +37,22 @@ class PlanUpdate(BaseModel):
             return v
         if not isinstance(v, dict):
             raise ValueError("must be an object")
+        return v
+
+    @validator("searches_per_day")
+    def non_negative(cls, v):
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("searches_per_day must be >= 0")
+        return v
+
+    @validator("quota_reached_message")
+    def message_length(cls, v):
+        if v is None:
+            return v
+        if len(v) > 2800:
+            raise ValueError("quota_reached_message too long (max 2800 chars)")
         return v
 
 

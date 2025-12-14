@@ -6,3 +6,4 @@ from app.models.broker_lead import BrokerLead
 from app.models.vin_report import VinReport
 from app.models.search_event import SearchEvent
 from app.models.plan import Plan
+from app.models.daily_usage import DailyUsage
