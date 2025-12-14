@@ -198,9 +198,21 @@ def search(
     now = time.time()
     if cached and now - cached[0] <= CACHE_TTL_SECONDS:
         response.headers["X-Cache"] = "HIT"
+        quota_info = None
         try:
             if current_user:
-                usage_service.increment_search_usage(db, current_user.id)
+                usage = usage_service.increment_search_usage(db, current_user.id)
+                remaining = None
+                if plan_limit is not None:
+                    remaining = max(plan_limit - usage.search_count, 0)
+                quota_info = search_schema.SearchQuota(
+                    limit=plan_limit,
+                    used=usage.search_count,
+                    remaining=remaining,
+                    reset_at=datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                    if plan_limit is not None
+                    else None,
+                )
             search_service.log_search_event(
                 db,
                 user_id=user_id,
@@ -218,7 +230,10 @@ def search(
             )
         except Exception:
             pass
-        return cached[1]
+        cached_response = cached[1].copy()
+        cached_response.quota = quota_info
+        _search_cache[cache_key] = (now, cached_response)
+        return cached_response
 
     settings = get_settings()
     providers = get_active_providers(settings)
@@ -265,22 +280,22 @@ def search(
             pass
         raise HTTPException(status_code=502, detail="Search unavailable")
 
-    response_body = search_schema.SearchResponse(
-        items=items,
-        total=total,
-        page=page,
-        page_size=page_size,
-        sources=sources,
-    )
-
     latency_ms = int((time.time() - start_ts) * 1000)
-    response.headers["X-Cache"] = "MISS"
-
-    _search_cache[cache_key] = (now, response_body)
-
+    quota_info = None
     try:
         if current_user:
-            usage_service.increment_search_usage(db, current_user.id)
+            usage = usage_service.increment_search_usage(db, current_user.id)
+            remaining = None
+            if plan_limit is not None:
+                remaining = max(plan_limit - usage.search_count, 0)
+            quota_info = search_schema.SearchQuota(
+                limit=plan_limit,
+                used=usage.search_count,
+                remaining=remaining,
+                reset_at=datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                if plan_limit is not None
+                else None,
+            )
         search_service.log_search_event(
             db,
             user_id=user_id,
@@ -298,5 +313,18 @@ def search(
         )
     except Exception:
         pass
+
+    response_body = search_schema.SearchResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        sources=sources,
+        quota=quota_info,
+    )
+
+    response.headers["X-Cache"] = "MISS"
+
+    _search_cache[cache_key] = (now, response_body)
 
     return response_body

@@ -56,9 +56,17 @@ class SearchSource(BaseModel):
     error: str | None = None
 
 
+class SearchQuota(BaseModel):
+    limit: int | None = None
+    used: int | None = None
+    remaining: int | None = None
+    reset_at: datetime | None = None
+
+
 class SearchResponse(BaseModel):
     items: list[SearchItem]
     total: int
     page: int
     page_size: int
     sources: list[SearchSource]
+    quota: SearchQuota | None = None

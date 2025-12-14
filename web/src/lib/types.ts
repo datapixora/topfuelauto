@@ -64,10 +64,18 @@ export type SearchSource = {
   error?: string | null;
 };
 
+export type QuotaInfo = {
+  limit: number | null;
+  used: number | null;
+  remaining: number | null;
+  reset_at?: string | null;
+};
+
 export type SearchResponse = {
   items: SearchItem[];
   total: number;
   page: number;
   page_size: number;
   sources: SearchSource[];
+  quota?: QuotaInfo | null;
 };

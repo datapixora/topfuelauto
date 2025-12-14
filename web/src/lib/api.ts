@@ -1,5 +1,5 @@
 import { getToken } from "./auth";
-import { Listing, SearchResult, SearchResponse, TokenResponse } from "./types";
+import { Listing, SearchResult, SearchResponse, TokenResponse, QuotaInfo } from "./types";
 
 const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -35,19 +35,55 @@ export async function searchVehicles(params: Record<string, string | number | un
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== "") qs.append(k, String(v));
   });
-  const res = await fetch(url(`/search?${qs.toString()}`));
+  const res = await fetch(url(`/search?${qs.toString()}`), { headers: { ...authHeaders() } });
   if (!res.ok) throw new Error("Search failed");
   return res.json();
 }
+
+type QuotaError = {
+  kind: "quota";
+  detail: string;
+  limit: number | null;
+  used: number | null;
+  remaining: number | null;
+  reset_at?: string | null;
+};
+
+const parseQuotaError = async (res: Response): Promise<QuotaError | null> => {
+  try {
+    const payload = await res.json();
+    if (payload?.code === "quota_exceeded") {
+      return {
+        kind: "quota",
+        detail: payload?.detail || "Daily search limit reached.",
+        limit: payload?.limit ?? null,
+        used: payload?.used ?? null,
+        remaining: payload?.remaining ?? null,
+        reset_at: payload?.reset_at ?? null,
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+};
 
 export async function searchMarketplace(params: Record<string, string | number | undefined>): Promise<SearchResponse> {
   const qs = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== "") qs.append(k, String(v));
   });
-  const res = await fetch(url(`/search?${qs.toString()}`));
-  if (!res.ok) throw new Error("Search failed");
-  return res.json();
+  const res = await fetch(url(`/search?${qs.toString()}`), { headers: { ...authHeaders() } });
+  if (res.ok) {
+    return res.json();
+  }
+  if (res.status === 429) {
+    const quota = await parseQuotaError(res);
+    const err = new Error(quota?.detail || "Daily search limit reached.");
+    (err as any).quota = quota;
+    throw err;
+  }
+  throw new Error(`Search failed (${res.status})`);
 }
 
 export async function getListing(id: string | number): Promise<Listing> {
