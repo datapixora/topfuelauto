@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text, case
 from datetime import datetime, timedelta
@@ -10,6 +10,9 @@ from app.models.user import User
 from app.models.broker_lead import BrokerLead
 from app.models.listing import Listing
 from app.models.plan import Plan
+from app.models.admin_action_log import AdminActionLog
+from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -52,7 +55,14 @@ def metrics_overview(db: Session = Depends(get_db), admin: User = Depends(get_cu
 def metrics_users(range: str = "30d", db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     total = db.query(User).count()
     users = db.query(User).limit(100).all()
-    return {"range": range, "total": total, "users": [{"id": u.id, "email": u.email, "is_pro": u.is_pro, "is_admin": u.is_admin} for u in users]}
+    return {
+        "range": range,
+        "total": total,
+        "users": [
+            {"id": u.id, "email": u.email, "is_pro": u.is_pro, "is_admin": u.is_admin, "is_active": u.is_active}
+            for u in users
+        ],
+    }
 
 
 @router.get("/metrics/subscriptions")
@@ -275,12 +285,79 @@ def metrics_upgrade_candidates(
     return {"range_days": days, "limit": limit, "items": result}
 
 
+class UserStatusPayload(BaseModel):
+    is_active: bool
+
+
+@router.patch("/users/{user_id}/status")
+def update_user_status(
+    user_id: int,
+    payload: UserStatusPayload,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    prev = user.is_active
+    user.is_active = payload.is_active
+    db.add(user)
+    db.add(
+        AdminActionLog(
+            admin_user_id=admin.id,
+            target_user_id=user.id,
+            action="set_status",
+            payload_json={"is_active": payload.is_active, "previous": prev},
+        )
+    )
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "email": user.email, "is_active": user.is_active}
+
+
+class UserPlanPayload(BaseModel):
+    plan_id: int
+
+
+@router.patch("/users/{user_id}/plan")
+def update_user_plan(
+    user_id: int,
+    payload: UserPlanPayload,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    plan = db.get(Plan, payload.plan_id)
+    if not plan or not plan.is_active:
+        raise HTTPException(status_code=400, detail="Plan not found or inactive")
+
+    user.is_pro = plan.key == "pro"
+    db.add(user)
+    db.add(
+        AdminActionLog(
+            admin_user_id=admin.id,
+            target_user_id=user.id,
+            action="set_plan",
+            payload_json={"plan_id": plan.id, "plan_key": plan.key},
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Could not update plan")
+    db.refresh(user)
+    return {"id": user.id, "email": user.email, "is_pro": user.is_pro, "plan_key": plan.key, "plan_name": plan.name}
+
+
 @router.get("/users/{user_id}")
 def admin_user_detail(user_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     user = db.get(User, user_id)
     if not user:
         return {"error": "not found"}
-    return {"id": user.id, "email": user.email, "is_pro": user.is_pro, "is_admin": user.is_admin}
+    return {"id": user.id, "email": user.email, "is_pro": user.is_pro, "is_admin": user.is_admin, "is_active": user.is_active}
 
 
 @router.get("/subscriptions")

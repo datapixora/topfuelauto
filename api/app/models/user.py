@@ -13,6 +13,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     is_pro = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     leads = relationship("BrokerLead", back_populates="user")

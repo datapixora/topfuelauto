@@ -28,6 +28,8 @@ def authenticate_user(db: Session, email: str, password: str) -> str:
     if not user:
         logger.info("Login failed: user not found", extra={"email": email})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+    if not user.is_active and not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
 
     if not user.password_hash:
         logger.warning("Login failed: missing password hash", extra={"user_id": user.id})

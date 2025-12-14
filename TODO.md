@@ -59,6 +59,12 @@
 57. [x] Fix quota decrement only on non-zero results.
 58. [x] Fix quota banner loading state and persistence on return.
 59. [x] Admin quota funnel analytics with upgrade candidates.
+60. [x] Admin user management v1 (plan changes, deactivate/reactivate).
+
+Next steps:
+- [ ] Admin: view user detail page with search history + quota usage
+- [ ] Admin: refund/credit tools (future)
+- [ ] Stripe sync: plan changes via webhook (later)
 
 Next steps:
 - [ ] Add conversion tracking: upgrades after quota hit

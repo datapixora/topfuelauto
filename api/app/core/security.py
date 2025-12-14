@@ -88,6 +88,12 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
     if user is None:
         logger.info("JWT verification failed", extra={"reason": "user_not_found"})
         raise credentials_exception
+    if not user.is_active and not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is disabled",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
@@ -106,4 +112,7 @@ def get_optional_user(db: Session = Depends(get_db), token: str | None = Depends
     user_id = payload.get("sub")
     if not user_id:
         return None
-    return db.get(User, int(user_id))
+    user = db.get(User, int(user_id))
+    if user and not user.is_active and not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
+    return user
