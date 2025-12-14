@@ -135,6 +135,14 @@ export async function signup(email: string, password: string): Promise<TokenResp
   return res.json();
 }
 
+export async function getQuota(): Promise<QuotaInfo> {
+  const res = await fetch(url("/auth/me/quota"), {
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) throw new Error("Unable to load quota");
+  return res.json();
+}
+
 export async function requestBid(payload: {
   listing_id: number;
   max_bid?: number;

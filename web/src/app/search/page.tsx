@@ -6,7 +6,7 @@ import TopNav from "../../components/TopNav";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
-import { searchMarketplace } from "../../lib/api";
+import { getQuota, searchMarketplace } from "../../lib/api";
 import { getToken } from "../../lib/auth";
 import { QuotaInfo, SearchItem } from "../../lib/types";
 
@@ -96,6 +96,8 @@ function QuotaBanner({
   message,
   resetLabel,
   onUpgrade,
+  loading,
+  showLoginHint,
 }: {
   quota: QuotaInfo | null;
   lowRemaining: boolean;
@@ -103,6 +105,8 @@ function QuotaBanner({
   message?: string | null;
   resetLabel?: string | null;
   onUpgrade?: () => void;
+  loading?: boolean;
+  showLoginHint?: boolean;
 }) {
   const limit = quota?.limit;
   const remaining = quota?.remaining;
@@ -115,17 +119,25 @@ function QuotaBanner({
       ? "border-amber-500/30 bg-amber-500/5 text-amber-50"
       : "border-slate-700 bg-slate-900 text-slate-100";
 
-  const remainingText =
-    limit === null || limit === undefined ? "Unlimited searches today" : `${Math.max(remaining ?? 0, 0)} searches remaining today`;
+  let remainingText = "";
+  if (loading) {
+    remainingText = "Checking quota...";
+  } else if (showLoginHint) {
+    remainingText = "Sign in to see your daily quota.";
+  } else if (limit === null || limit === undefined) {
+    remainingText = "Unlimited searches today";
+  } else {
+    remainingText = `${Math.max(remaining ?? 0, 0)} searches remaining today`;
+  }
 
   return (
     <div className={`${baseClasses} ${stateClasses}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="font-semibold">{exceeded ? "Daily limit reached" : "Daily quota"}</div>
-        {!exceeded && <span className="text-xs text-slate-300">{resetLabel ? `Resets in ${resetLabel}` : ""}</span>}
+        {!exceeded && !loading && <span className="text-xs text-slate-300">{resetLabel ? `Resets in ${resetLabel}` : ""}</span>}
       </div>
       <div className="text-sm">{exceeded && message ? message : remainingText}</div>
-      {limit !== null && limit !== undefined && (
+      {!loading && limit !== null && limit !== undefined && (
         <div className="text-xs text-slate-300">
           Used {used ?? 0} / {limit} {resetLabel ? `• Resets ${resetLabel === "soon" ? "soon" : `in ${resetLabel}`}` : ""}
         </div>
@@ -156,9 +168,25 @@ function SearchContent() {
   const [pageSize] = useState(DEFAULT_PAGE_SIZE);
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [quotaError, setQuotaError] = useState<QuotaError | null>(null);
+  const [quotaLoading, setQuotaLoading] = useState(false);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
   const resetCountdown = useResetCountdown(quota?.reset_at || quotaError?.reset_at || null);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setQuotaLoading(false);
+      return;
+    }
+    setQuotaLoading(true);
+    getQuota()
+      .then((q) => setQuota(q))
+      .catch(() => {
+        /* ignore */
+      })
+      .finally(() => setQuotaLoading(false));
+  }, []);
 
   const doSearch = async (targetPage: number, skipGate = false) => {
     if (!skipGate && !getToken() && !canSearchWithoutToken()) {
@@ -236,6 +264,8 @@ function SearchContent() {
         message={quotaError?.detail}
         resetLabel={resetCountdown}
         onUpgrade={() => router.push("/pricing")}
+        loading={quotaLoading}
+        showLoginHint={!quotaLoading && !quota && !quotaError && !getToken()}
       />
 
       <Card>

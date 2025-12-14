@@ -200,8 +200,13 @@ def search(
         response.headers["X-Cache"] = "HIT"
         quota_info = None
         try:
+            usage = None
+            should_increment = cached[1].total > 0 if cached[1] else False
             if current_user:
-                usage = usage_service.increment_search_usage(db, current_user.id)
+                if should_increment:
+                    usage = usage_service.increment_search_usage(db, current_user.id)
+                else:
+                    usage = usage_service.get_or_create_today_usage(db, current_user.id)
                 remaining = None
                 if plan_limit is not None:
                     remaining = max(plan_limit - usage.search_count, 0)
@@ -283,8 +288,13 @@ def search(
     latency_ms = int((time.time() - start_ts) * 1000)
     quota_info = None
     try:
+        usage = None
+        should_increment = total > 0
         if current_user:
-            usage = usage_service.increment_search_usage(db, current_user.id)
+            if should_increment:
+                usage = usage_service.increment_search_usage(db, current_user.id)
+            else:
+                usage = usage_service.get_or_create_today_usage(db, current_user.id)
             remaining = None
             if plan_limit is not None:
                 remaining = max(plan_limit - usage.search_count, 0)
