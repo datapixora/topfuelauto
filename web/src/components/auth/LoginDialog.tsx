@@ -2,15 +2,9 @@
 
 import { useState } from "react";
 import LoginForm from "./LoginForm";
+import SignupForm from "./SignupForm";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "../ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 
 type LoginDialogProps = {
   onLoggedIn?: (token: string) => void;
@@ -26,6 +20,7 @@ export default function LoginDialog({
   label = "Sign in",
 }: LoginDialogProps) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<"login" | "signup">("login");
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -36,15 +31,34 @@ export default function LoginDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Welcome back</DialogTitle>
-          <DialogDescription>Sign in to continue searching and save vehicles.</DialogDescription>
+          <DialogTitle>{tab === "login" ? "Welcome back" : "Create your account"}</DialogTitle>
+          <DialogDescription>
+            {tab === "login" ? "Sign in to continue searching and save vehicles." : "Start searching with your new account."}
+          </DialogDescription>
         </DialogHeader>
-        <LoginForm
-          onSuccess={(token) => {
-            onLoggedIn?.(token);
-            setOpen(false);
-          }}
-        />
+        <div className="flex items-center gap-2 mb-4">
+          <Button variant={tab === "login" ? "primary" : "ghost"} onClick={() => setTab("login")} className="flex-1">
+            Sign in
+          </Button>
+          <Button variant={tab === "signup" ? "primary" : "ghost"} onClick={() => setTab("signup")} className="flex-1">
+            Create account
+          </Button>
+        </div>
+        {tab === "login" ? (
+          <LoginForm
+            onSuccess={(token) => {
+              onLoggedIn?.(token);
+              setOpen(false);
+            }}
+          />
+        ) : (
+          <SignupForm
+            onSuccess={(token) => {
+              onLoggedIn?.(token);
+              setOpen(false);
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

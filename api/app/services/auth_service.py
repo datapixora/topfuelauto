@@ -19,6 +19,10 @@ def create_user(db: Session, email: str, password: str) -> User:
     return user
 
 
+def create_token_for_user(user: User) -> str:
+    return create_access_token({"sub": str(user.id)})
+
+
 def authenticate_user(db: Session, email: str, password: str) -> str:
     user = db.query(User).filter(User.email == email).first()
     if not user:

@@ -9,10 +9,11 @@ from app.core.security import get_current_user
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
-@router.post("/signup", response_model=auth_schema.UserOut)
+@router.post("/signup", response_model=auth_schema.Token)
 def signup(payload: auth_schema.UserCreate, db: Session = Depends(get_db)):
     user = auth_service.create_user(db, payload.email, payload.password)
-    return user
+    token = auth_service.create_token_for_user(user)
+    return {"access_token": token, "token_type": "bearer"}
 
 
 @router.post("/login", response_model=auth_schema.Token)

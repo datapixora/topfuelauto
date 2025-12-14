@@ -55,6 +55,12 @@
 53. [ ] Add admin analytics charts for search usage.
 54. [x] Ensure admin plans endpoint works after quota fields (auto-run Alembic on Render start).
 55. [x] Search UI shows quota status and upgrade CTA on limit.
+56. [x] User signup MVP (email/password) live.
+
+Next steps:
+- [ ] Password reset flow
+- [ ] Email verification
+- [ ] Anonymous-to-user conversion
 - [x] Fix admin API base URL for analytics (use NEXT_PUBLIC_API_BASE_URL).
 - [x] Fix JWT verify consistency (admin 401) and add /api/v1/auth/me.
 - [x] Fix jose import error on deploy (security module).
