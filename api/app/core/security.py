@@ -4,7 +4,11 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError, ExpiredSignatureError, JWTClaimsError
+from jose import jwt, JWTError
+try:
+    from jose.exceptions import ExpiredSignatureError  # type: ignore
+except Exception:  # pragma: no cover
+    ExpiredSignatureError = None  # type: ignore
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
@@ -54,14 +58,15 @@ def decode_access_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.algorithm])
         return payload
-    except ExpiredSignatureError:
-        logger.info("JWT verification failed", extra={"reason": "expired"})
-    except JWTClaimsError:
-        logger.info("JWT verification failed", extra={"reason": "invalid_payload"})
-    except JWTError:
-        logger.info("JWT verification failed", extra={"reason": "invalid_signature"})
-    except Exception:
-        logger.exception("JWT verification failed", extra={"reason": "unknown"})
+    except Exception as exc:
+        if ExpiredSignatureError and isinstance(exc, ExpiredSignatureError):
+            logger.info("JWT verification failed", extra={"reason": "expired"})
+        elif isinstance(exc, JWTError):
+            message = str(exc).lower()
+            reason = "expired" if "expired" in message else "invalid"
+            logger.info("JWT verification failed", extra={"reason": reason})
+        else:
+            logger.info("JWT verification failed", extra={"reason": "invalid"})
     return None
 
 
