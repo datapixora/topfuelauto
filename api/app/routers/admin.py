@@ -12,7 +12,7 @@ from app.models.listing import Listing
 from app.models.plan import Plan
 from app.models.admin_action_log import AdminActionLog
 from app.models.daily_usage import DailyUsage
-from app.services import usage_service
+from app.services import usage_service, plan_service
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc
@@ -58,12 +58,12 @@ def metrics_overview(db: Session = Depends(get_db), admin: User = Depends(get_cu
 def metrics_users(range: str = "30d", db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     total = db.query(User).count()
     users = db.query(User).limit(100).all()
-    return {
-        "range": range,
-        "total": total,
-        "users": [
-            (
-                lambda plan: {
+    result = []
+    for u in users:
+        try:
+            plan = plan_service.get_active_plan(db, u)
+            result.append(
+                {
                     "id": u.id,
                     "email": u.email,
                     "is_admin": u.is_admin,
@@ -71,10 +71,19 @@ def metrics_users(range: str = "30d", db: Session = Depends(get_db), admin: User
                     "plan_id": plan.id if plan else None,
                     "plan_name": plan.name if plan else None,
                 }
-            )(plan_service.get_active_plan(db, u))
-            for u in users
-        ],
-    }
+            )
+        except Exception:
+            result.append(
+                {
+                    "id": u.id,
+                    "email": u.email,
+                    "is_admin": u.is_admin,
+                    "is_active": u.is_active,
+                    "plan_id": None,
+                    "plan_name": None,
+                }
+            )
+    return {"range": range, "total": total, "users": result}
 
 
 @router.get("/metrics/subscriptions")

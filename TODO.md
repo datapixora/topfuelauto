@@ -65,6 +65,7 @@
 63. [x] Stripe v1 monthly+yearly (admin-config) checkout + webhook.
 64. [x] Assist Core v1 with watch mode and prompt skeleton.
 65. [x] Hotfix: import ForeignKey for user current_plan_id to fix deploy.
+66. [x] Fix admin metrics users 500/CORS symptom.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
