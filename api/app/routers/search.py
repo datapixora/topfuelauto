@@ -11,12 +11,11 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import get_optional_user
+import logging
+
 from app.providers import get_active_providers
-from app.services import search_service, usage_service, plan_service, provider_setting_service
 from app.schemas import search as search_schema
-from app.services import search_service
-from app.services import usage_service
-from app.services import plan_service
+from app.services import search_service, usage_service, plan_service, provider_setting_service, search_cache_service
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
@@ -183,6 +182,13 @@ def search(
             resp.headers["X-Cache"] = "MISS"
             return resp
 
+    settings = get_settings()
+    enabled_keys = provider_setting_service.get_enabled_providers(db, "search")
+    providers = get_active_providers(settings, allowed_keys=enabled_keys)
+    if not providers:
+        # fail-safe fallback to marketcheck instantiation
+        providers = get_active_providers(settings, allowed_keys=["marketcheck"])
+
     cache_key = _make_cache_key(
         client_ip,
         q,
@@ -204,12 +210,8 @@ def search(
         quota_info = None
         try:
             usage = None
-            should_increment = cached[1].total > 0 if cached[1] else False
             if current_user:
-                if should_increment:
-                    usage = usage_service.increment_search_usage(db, current_user.id)
-                else:
-                    usage = usage_service.get_or_create_today_usage(db, current_user.id)
+                usage = usage_service.get_or_create_today_usage(db, current_user.id)
                 remaining = None
                 if plan_limit is not None:
                     remaining = max(plan_limit - usage.search_count, 0)
@@ -243,12 +245,60 @@ def search(
         _search_cache[cache_key] = (now, cached_response)
         return cached_response
 
-    settings = get_settings()
-    enabled_keys = provider_setting_service.get_enabled_providers(db, "search")
-    providers = get_active_providers(settings, allowed_keys=enabled_keys)
-    if not providers:
-        # fail-safe fallback to marketcheck instantiation
-        providers = get_active_providers(settings, allowed_keys=["marketcheck"])
+    # DB cache
+    signature = search_cache_service.compute_signature(enabled_keys, query_normalized, filters, page, page_size)
+    try:
+        cached_db = search_cache_service.get_cached(db, signature, ttl_minutes=15)
+    except Exception as exc:
+        db.rollback()
+        logging.getLogger(__name__).warning("search cache get failed: %s", exc)
+        cached_db = None
+
+    if cached_db:
+        response.headers["X-Cache"] = "HIT"
+        quota_info = None
+        if current_user:
+            usage = usage_service.get_or_create_today_usage(db, current_user.id)
+            remaining = None
+            if plan_limit is not None:
+                remaining = max(plan_limit - usage.search_count, 0)
+            quota_info = search_schema.SearchQuota(
+                limit=plan_limit,
+                used=usage.search_count,
+                remaining=remaining,
+                reset_at=datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                if plan_limit is not None
+                else None,
+            )
+        try:
+            search_service.log_search_event(
+                db,
+                user_id=user_id,
+                session_id=session_id,
+                query_raw=query_raw,
+                query_normalized=query_normalized,
+                filters=filters,
+                providers=cached_db.providers_json or enabled_keys,
+                result_count=cached_db.total or 0,
+                latency_ms=None,
+                cache_hit=True,
+                rate_limited=False,
+                status="ok",
+                error_code=None,
+            )
+        except Exception:
+            pass
+
+        response_body = search_schema.SearchResponse(
+            items=cached_db.results_json or [],
+            total=cached_db.total or 0,
+            page=page,
+            page_size=page_size,
+            sources=[{"name": p, "enabled": True} for p in (cached_db.providers_json or enabled_keys or [])],
+            quota=quota_info,
+        )
+        _search_cache[cache_key] = (time.time(), response_body)
+        return response_body
 
     items = []
     total = 0
@@ -330,6 +380,22 @@ def search(
         )
     except Exception:
         pass
+
+    try:
+        search_cache_service.set_cached(
+            db,
+            signature=signature,
+            providers=[p.name for p in providers],
+            query_normalized=query_normalized,
+            filters=filters,
+            page=page,
+            limit=page_size,
+            total=total,
+            results=items,
+        )
+    except Exception as exc:
+        db.rollback()
+        logging.getLogger(__name__).warning("search cache set failed: %s", exc)
 
     response_body = search_schema.SearchResponse(
         items=items,
