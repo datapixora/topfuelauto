@@ -193,6 +193,7 @@ def providers_status(admin: User = Depends(get_current_admin)):
 
 @router.get("/providers", response_model=List[ProviderSettingOut])
 def list_providers(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    provider_setting_service.ensure_defaults(db)
     settings = provider_setting_service.list_settings(db)
     return settings
 
@@ -214,6 +215,12 @@ def update_provider(
         mode=payload.mode,
     )
     return setting
+
+
+@router.post("/providers/seed-defaults")
+def seed_providers(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    provider_setting_service.ensure_defaults(db)
+    return {"seeded": True}
 
 
 @router.get("/metrics/quota")

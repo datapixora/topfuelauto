@@ -322,6 +322,15 @@ export async function updateProviderSetting(
   return res.json();
 }
 
+export async function seedProviderDefaults() {
+  const res = await authFetch("/admin/providers/seed-defaults", { method: "POST" });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Seed failed (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
 async function apiPost(path: string, body: any) {
   const res = await authFetch(path, {
     method: "POST",

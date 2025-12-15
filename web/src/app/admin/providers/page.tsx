@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
-import { listProviderSettings, updateProviderSetting } from "../../../lib/api";
+import { listProviderSettings, updateProviderSetting, seedProviderDefaults } from "../../../lib/api";
 
 type Provider = {
   key: string;
@@ -24,6 +24,7 @@ export default function AdminProviders() {
   const [loading, setLoading] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -67,11 +68,32 @@ export default function AdminProviders() {
     }
   };
 
+  const seed = async () => {
+    setSeeding(true);
+    setError(null);
+    try {
+      await seedProviderDefaults();
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
         <CardTitle>Provider Manager</CardTitle>
-        {error && <div className="text-red-400 text-xs">Error: {error}</div>}
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={load} disabled={loading}>
+            Reload
+          </Button>
+          <Button onClick={seed} disabled={seeding}>
+            {seeding ? "Seeding..." : "Seed defaults"}
+          </Button>
+          {error && <div className="text-red-400 text-xs">Error: {error}</div>}
+        </div>
       </CardHeader>
       <CardContent className="space-y-2">
         {loading && <div className="text-slate-400 text-sm">Loading providers…</div>}

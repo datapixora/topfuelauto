@@ -74,6 +74,7 @@
 72. [x] search_events.query now always populated; analytics logging is non-fatal to prevent Assist/Search 500s.
 73. [x] Admin provider manager added; provider_settings table controls enabled/priority/mode; search & assist honor enabled providers with marketcheck fallback.
 74. [x] Fixed Alembic multiple-heads error by merging provider_settings branch with main migration head.
+75. [x] Provider Manager stabilized with seeded defaults (marketcheck on, copart_public off) and fail-safe gating.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)

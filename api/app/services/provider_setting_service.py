@@ -7,14 +7,17 @@ from app.models.provider_setting import ProviderSetting
 
 DEFAULTS = [
     {"key": "marketcheck", "enabled": True, "priority": 10, "mode": "both"},
+    {"key": "copart_public", "enabled": False, "priority": 20, "mode": "both"},
 ]
 
 
 def ensure_defaults(db: Session) -> None:
-    existing = db.query(ProviderSetting).count()
-    if existing:
-        return
+    existing_keys = {row.key for row in db.query(ProviderSetting.key).all()}
+    created = False
     for cfg in DEFAULTS:
+        if cfg["key"] in existing_keys:
+            continue
+        created = True
         db.add(
             ProviderSetting(
                 key=cfg["key"],
@@ -25,7 +28,8 @@ def ensure_defaults(db: Session) -> None:
                 updated_at=datetime.utcnow(),
             )
         )
-    db.commit()
+    if created:
+        db.commit()
 
 
 def list_settings(db: Session) -> List[ProviderSetting]:
@@ -76,5 +80,8 @@ def get_enabled_providers(db: Session, purpose: str) -> List[str]:
     )
     keys = [row.key for row in rows]
     if not keys:
+        import logging
+
+        logging.getLogger(__name__).warning("No enabled providers for %s; falling back to marketcheck", purpose)
         return ["marketcheck"]
     return keys
