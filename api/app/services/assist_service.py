@@ -276,8 +276,8 @@ def _fetch_real_search_results(
     error_code = None
     start_ts = time.time()
 
-    try:
-        for provider in providers:
+    for provider in providers:
+        try:
             provider_items, provider_total, meta = provider.search_listings(
                 query=q,
                 filters=filters,
@@ -287,9 +287,17 @@ def _fetch_real_search_results(
             items.extend(provider_items[:page_size])
             total += provider_total
             sources.append(meta)
-    except Exception:
-        status = "error"
-        error_code = "provider_error"
+        except Exception as exc:  # noqa: BLE001
+            status = "error"
+            error_code = "provider_error"
+            meta = {"name": getattr(provider, "name", "unknown"), "error": "request_failed"}
+            sources.append(meta)
+            logging.getLogger(__name__).warning(
+                "market.scout provider failed case=%s provider=%s err=%s",
+                case.id,
+                getattr(provider, "name", "unknown"),
+                exc,
+            )
 
     latency_ms = int((time.time() - start_ts) * 1000)
 

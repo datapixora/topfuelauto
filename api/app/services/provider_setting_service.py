@@ -7,7 +7,7 @@ from app.models.provider_setting import ProviderSetting
 
 DEFAULTS = [
     {"key": "marketcheck", "enabled": True, "priority": 10, "mode": "both"},
-    {"key": "copart_public", "enabled": False, "priority": 20, "mode": "both"},
+    {"key": "copart_public", "enabled": False, "priority": 20, "mode": "assist"},
 ]
 
 

@@ -183,7 +183,7 @@ def search(
             return resp
 
     settings = get_settings()
-    enabled_keys = provider_setting_service.get_enabled_providers(db, "search")
+    enabled_keys = [k for k in provider_setting_service.get_enabled_providers(db, "search") if k != "copart_public"]
     providers = get_active_providers(settings, allowed_keys=enabled_keys)
     if not providers:
         # fail-safe fallback to marketcheck instantiation
