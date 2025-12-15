@@ -34,6 +34,21 @@ def _json_safe(v):
     return jsonable_encoder(v)
 
 
+def _should_execute_provider(provider, filters: Dict[str, Any]) -> Tuple[bool, str | None]:
+    """
+    Determine if a provider should be executed based on filters and capabilities.
+
+    Returns: (should_execute, skip_reason)
+    """
+    requires_structured = getattr(provider, "requires_structured", False)
+    has_structured = filters.get("make") or filters.get("model")
+
+    if requires_structured and not has_structured:
+        return False, "requires_structured_filters"
+
+    return True, None
+
+
 def _today() -> datetime.date:
     return datetime.utcnow().date()
 
@@ -336,9 +351,32 @@ def _fetch_real_search_results(
     per_provider_errors: Dict[str, str] = {}
 
     for provider in providers:
-        provider_start = time.time()
         provider_name = getattr(provider, "name", "unknown")
+
+        # Check if provider should be executed based on capabilities
+        should_execute, skip_reason = _should_execute_provider(provider, filters)
+
+        if not should_execute:
+            # Provider skipped - record skip reason
+            per_provider_counts[provider_name] = 0
+            per_provider_errors[provider_name] = f"skipped: {skip_reason}"
+            sources.append({
+                "name": provider_name,
+                "enabled": True,
+                "skipped": True,
+                "skip_reason": skip_reason,
+            })
+            logger.info(
+                "market.scout provider skipped case=%s provider=%s reason=%s",
+                case_id,
+                provider_name,
+                skip_reason,
+            )
+            continue
+
+        # Provider will be executed
         providers_executed.append(provider_name)
+        provider_start = time.time()
         logger.info(
             "market.scout provider start case=%s provider=%s q=%s filters=%s signature=%s",
             case_id,

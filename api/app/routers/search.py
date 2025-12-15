@@ -28,6 +28,22 @@ _search_cache: Dict[str, Tuple[float, search_schema.SearchResponse]] = {}
 _rate_limit: Dict[str, list[float]] = defaultdict(list)
 
 
+def _should_execute_provider(provider, filters: Dict[str, Any]) -> Tuple[bool, str | None]:
+    """
+    Determine if a provider should be executed based on filters and capabilities.
+
+    Returns: (should_execute, skip_reason)
+    """
+    # Check if provider requires structured filters (make/model)
+    requires_structured = getattr(provider, "requires_structured", False)
+    has_structured = filters.get("make") or filters.get("model")
+
+    if requires_structured and not has_structured:
+        return False, "requires_structured_filters"
+
+    return True, None
+
+
 def _make_cache_key(
     ip: str,
     q: str,
@@ -310,9 +326,28 @@ def search(
     start_ts = time.time()
     status = "ok"
     error_code = None
+    skipped_providers = []
 
     try:
         for provider in providers:
+            # Check if provider should be executed based on capabilities
+            should_execute, skip_reason = _should_execute_provider(provider, filters)
+
+            if not should_execute:
+                # Provider skipped - add to sources with skip reason
+                sources.append({
+                    "name": provider.name,
+                    "enabled": True,
+                    "skipped": True,
+                    "skip_reason": skip_reason,
+                })
+                skipped_providers.append({"name": provider.name, "reason": skip_reason})
+                logging.getLogger(__name__).info(
+                    f"Skipped provider {provider.name}: {skip_reason}"
+                )
+                continue
+
+            # Execute provider
             provider_items, provider_total, meta = provider.search_listings(
                 query=q,
                 filters=filters,

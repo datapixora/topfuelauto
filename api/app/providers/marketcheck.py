@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 class MarketCheckProvider:
     name = "marketcheck"
+    requires_structured = True  # MUST have make or model
+    supports_free_text = False  # Free-text queries produce garbage results
 
     def __init__(self, settings: Settings):
         self.settings = settings

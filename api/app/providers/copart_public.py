@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 
 class CopartPublicProvider:
     name = "copart_public"
+    requires_structured = False  # Can work with free-text
+    supports_free_text = True  # Handles free-form queries
 
     def __init__(self):
         self.base_url = "https://www.copart.com/public/data/lotsearch/lotsearch"
