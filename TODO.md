@@ -78,6 +78,7 @@
 76. [x] Added server-side search cache (15m TTL) schema/service for faster repeated queries.
 77. [x] Step 2.1: Search endpoint uses 15m DB cache (quota-safe, non-fatal); cache hits do not consume quota.
 78. [x] Step 3A: Added copart_public provider for Assist market.scout (public-only, admin-togglable, fail-safe).
+79. [x] Market.scout step now records provider debug (requested/enabled/executed counts & errors) to trace copart usage.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)

@@ -267,6 +267,7 @@ def _fetch_real_search_results(
 
     settings = get_settings()
     enabled_keys = provider_setting_service.get_enabled_providers(db, "assist")
+    providers_requested = list(enabled_keys)
     providers = get_active_providers(settings, allowed_keys=enabled_keys)
     if not providers:
         providers = get_active_providers(settings, allowed_keys=["marketcheck"])
@@ -277,8 +278,21 @@ def _fetch_real_search_results(
     status = "ok"
     error_code = None
     start_ts = time.time()
+    providers_executed: List[str] = []
+    per_provider_counts: Dict[str, int] = {}
+    per_provider_errors: Dict[str, str] = {}
 
     for provider in providers:
+        provider_start = time.time()
+        provider_name = getattr(provider, "name", "unknown")
+        providers_executed.append(provider_name)
+        logging.getLogger(__name__).info(
+            "market.scout provider start case=%s provider=%s q=%s filters=%s",
+            case_id,
+            provider_name,
+            q,
+            filters,
+        )
         try:
             provider_items, provider_total, meta = provider.search_listings(
                 query=q,
@@ -289,17 +303,32 @@ def _fetch_real_search_results(
             items.extend(provider_items[:page_size])
             total += provider_total
             sources.append(meta)
+            per_provider_counts[provider_name] = len(provider_items)
+            elapsed_ms = int((time.time() - provider_start) * 1000)
+            logging.getLogger(__name__).info(
+                "market.scout provider done case=%s provider=%s count=%s elapsed_ms=%s",
+                case_id,
+                provider_name,
+                len(provider_items),
+                elapsed_ms,
+            )
         except Exception as exc:  # noqa: BLE001
-            meta = {"name": getattr(provider, "name", "unknown"), "error": "request_failed"}
+            meta = {"name": provider_name, "error": "request_failed"}
             sources.append(meta)
+            per_provider_counts[provider_name] = 0
+            per_provider_errors[provider_name] = str(exc)
             logging.getLogger(__name__).warning(
                 "market.scout provider failed case=%s provider=%s err=%s",
                 case_id,
-                getattr(provider, "name", "unknown"),
+                provider_name,
                 exc,
             )
 
     latency_ms = int((time.time() - start_ts) * 1000)
+
+    if not items and per_provider_errors and len(per_provider_errors) == len(providers_executed):
+        status = "error"
+        error_code = "provider_error"
 
     usage = None
     remaining = None
@@ -317,6 +346,13 @@ def _fetch_real_search_results(
             "remaining": remaining,
             "reset_at": reset_at if plan_limit is not None else None,
         }
+    debug_info = {
+        "providers_requested": providers_requested,
+        "providers_enabled_for_assist": enabled_keys,
+        "providers_executed": providers_executed,
+        "per_provider_counts": per_provider_counts,
+        "per_provider_errors": per_provider_errors,
+    }
 
     try:
         search_service.log_search_event(
@@ -348,6 +384,7 @@ def _fetch_real_search_results(
         "q": q,
         "filters": filters,
         "page_size": page_size,
+        "debug": debug_info,
     }
 
 
@@ -546,6 +583,8 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
             "signature": signature,
             "total": total,
         }
+        if search_res.get("debug"):
+            market_output["debug"] = search_res["debug"]
         if search_res.get("quota"):
             market_output["quota"] = search_res["quota"]
         market_step.status = "succeeded"
