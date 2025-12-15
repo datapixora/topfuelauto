@@ -16,7 +16,7 @@ from app.models.assist_step import AssistStep
 from app.models.plan import Plan
 from app.models.search_event import SearchEvent
 from app.providers import get_active_providers
-from app.services import plan_service, prompt_service, search_service, usage_service, provider_setting_service
+from app.services import plan_service, prompt_service, search_service, usage_service, provider_setting_service, query_parser
 
 PIPELINE_STEPS = [
     "intake.normalize",
@@ -98,9 +98,17 @@ def _extract_search_query(intake_payload: Dict[str, Any], case_title: str | None
         or payload.get("notes")
         or ""
     )
+
+    # Extract explicit filters
+    explicit_make = search_block.get("make") or payload.get("make")
+    explicit_model = search_block.get("model") or payload.get("model")
+
+    # Parse query to extract structured filters if not explicitly provided
+    query_normalized, parsed_filters = query_parser.parse_query(q, explicit_make, explicit_model)
+
     filters = {
-        "make": search_block.get("make") or payload.get("make"),
-        "model": search_block.get("model") or payload.get("model"),
+        "make": parsed_filters.get("make") or explicit_make,
+        "model": parsed_filters.get("model") or explicit_model,
         "year_min": search_block.get("year_min") or payload.get("year_min"),
         "year_max": search_block.get("year_max") or payload.get("year_max"),
         "price_min": search_block.get("price_min") or payload.get("price_min"),
@@ -134,7 +142,7 @@ def _extract_search_query(intake_payload: Dict[str, Any], case_title: str | None
 
     candidates = [
         vehicle_query,
-        q.strip() if isinstance(q, str) else "",
+        query_normalized if query_normalized else (q.strip() if isinstance(q, str) else ""),
         (case_title or "").strip(),
     ]
     chosen_q = next((c for c in candidates if c), "")

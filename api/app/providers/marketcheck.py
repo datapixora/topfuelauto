@@ -29,10 +29,18 @@ class MarketCheckProvider:
         page_size: int,
     ) -> Dict[str, Any]:
         start = max(page - 1, 0) * page_size
+
+        # Prefer structured filters over free-form query
+        # If we have make/model, use minimal or empty query to avoid confusion
+        effective_query = query
+        if filters.get("make") or filters.get("model"):
+            # When structured filters are present, use them instead of raw query
+            effective_query = ""
+
         params: Dict[str, Any] = {
             "api_key": self.api_key,
             "api_secret": self.api_secret,
-            "q": query,
+            "q": effective_query,
             "start": start,
             "rows": page_size,
         }

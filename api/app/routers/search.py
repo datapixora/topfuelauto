@@ -15,7 +15,7 @@ import logging
 
 from app.providers import get_active_providers
 from app.schemas import search as search_schema
-from app.services import search_service, usage_service, plan_service, provider_setting_service, search_cache_service
+from app.services import search_service, usage_service, plan_service, provider_setting_service, search_cache_service, query_parser
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
@@ -95,11 +95,13 @@ def search(
     session_id = request.headers.get("X-Session-Id")
     session_id = session_id[:64] if session_id else None
     query_raw = q
-    query_normalized = " ".join(q.strip().lower().split())
+
+    # Parse query to extract structured filters
+    query_normalized, parsed_filters = query_parser.parse_query(q, make, model)
 
     filters = {
-        "make": make,
-        "model": model,
+        "make": parsed_filters.get("make") or make,
+        "model": parsed_filters.get("model") or model,
         "year_min": year_min,
         "year_max": year_max,
         "price_min": price_min,
