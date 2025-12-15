@@ -71,6 +71,7 @@
 69. [x] Alerts v1 (saved searches + in-app notifications + scheduling).
 70. [x] Assist market.scout now uses real search/provider (quota + signature delta).
 71. [x] Authenticated web calls send Bearer headers; /auth/me & assist submit handle 401 with clean login redirect/CORS-safe.
+72. [x] search_events.query now always populated; analytics logging is non-fatal to prevent Assist/Search 500s.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)

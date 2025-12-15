@@ -1,9 +1,13 @@
+import logging
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.listing import Listing
 from app.models.vehicle import Vehicle
 from app.models.search_event import SearchEvent
+
+logger = logging.getLogger(__name__)
 
 
 def search_listings(
@@ -86,19 +90,27 @@ def log_search_event(
     status: str,
     error_code: str | None,
 ):
-    event = SearchEvent(
-        user_id=user_id,
-        session_id=session_id,
-        query_raw=query_raw,
-        query_normalized=query_normalized,
-        filters_json=filters,
-        providers=providers,
-        result_count=result_count,
-        latency_ms=latency_ms,
-        cache_hit=cache_hit,
-        rate_limited=rate_limited,
-        status=status,
-        error_code=error_code,
-    )
-    db.add(event)
-    db.commit()
+    # Ensure NOT NULL column `query` is always populated.
+    query_value = query_normalized or query_raw or ""
+    try:
+        event = SearchEvent(
+            user_id=user_id,
+            session_id=session_id,
+            query=query_value,
+            query_raw=query_raw,
+            query_normalized=query_normalized,
+            filters_json=filters,
+            providers=providers,
+            result_count=result_count,
+            latency_ms=latency_ms,
+            cache_hit=cache_hit,
+            rate_limited=rate_limited,
+            status=status,
+            error_code=error_code,
+        )
+        db.add(event)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        # Analytics must never break core flows.
+        db.rollback()
+        logger.warning("log_search_event failed: %s", exc, exc_info=False)

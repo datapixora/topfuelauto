@@ -13,6 +13,9 @@ class SearchEvent(Base):
 
     session_id = Column(String(64), nullable=True, index=True)
 
+    # Note: `query` is NOT NULL in the database (created in migration 0002_admin).
+    # Keep it in sync to avoid IntegrityError on insert.
+    query = Column(String(255), nullable=False, default="")
     query_raw = Column(String(255), nullable=True)
     query_normalized = Column(String(255), nullable=True, index=True)
 
