@@ -75,6 +75,7 @@
 73. [x] Admin provider manager added; provider_settings table controls enabled/priority/mode; search & assist honor enabled providers with marketcheck fallback.
 74. [x] Fixed Alembic multiple-heads error by merging provider_settings branch with main migration head.
 75. [x] Provider Manager stabilized with seeded defaults (marketcheck on, copart_public off) and fail-safe gating.
+76. [x] Added server-side search cache (15m TTL) schema/service for faster repeated queries.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
