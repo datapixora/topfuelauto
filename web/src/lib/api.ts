@@ -301,6 +301,27 @@ export async function markAllNotificationsRead() {
   return apiPost("/notifications/read-all", {});
 }
 
+// Admin providers
+export async function listProviderSettings() {
+  return apiGet<{ key: string; enabled: boolean; priority: number; mode: string }[]>("/admin/providers");
+}
+
+export async function updateProviderSetting(
+  key: string,
+  payload: { enabled?: boolean; priority?: number; mode?: string }
+) {
+  const res = await authFetch(`/admin/providers/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Update failed (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
 async function apiPost(path: string, body: any) {
   const res = await authFetch(path, {
     method: "POST",

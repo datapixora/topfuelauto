@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text, case
 from datetime import datetime, timedelta
+from typing import List
 
 from app.core.database import get_db
 from app.core.security import get_current_admin
@@ -12,7 +13,8 @@ from app.models.listing import Listing
 from app.models.plan import Plan
 from app.models.admin_action_log import AdminActionLog
 from app.models.daily_usage import DailyUsage
-from app.services import usage_service, plan_service
+from app.services import usage_service, plan_service, provider_setting_service
+from app.schemas.provider_setting import ProviderSettingOut, ProviderSettingUpdate
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc
@@ -187,6 +189,31 @@ def metrics_searches(range: str = "30d", db: Session = Depends(get_db), admin: U
 def providers_status(admin: User = Depends(get_current_admin)):
     # TODO: wire to real provider sync status
     return {"providers": []}
+
+
+@router.get("/providers", response_model=List[ProviderSettingOut])
+def list_providers(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    settings = provider_setting_service.list_settings(db)
+    return settings
+
+
+@router.patch("/providers/{key}", response_model=ProviderSettingOut)
+def update_provider(
+    key: str,
+    payload: ProviderSettingUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    if payload.mode and payload.mode not in {"search", "assist", "both"}:
+        raise HTTPException(status_code=400, detail="Invalid mode")
+    setting = provider_setting_service.update_setting(
+        db,
+        key=key,
+        enabled=payload.enabled,
+        priority=payload.priority,
+        mode=payload.mode,
+    )
+    return setting
 
 
 @router.get("/metrics/quota")

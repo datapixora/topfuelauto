@@ -14,7 +14,7 @@ from app.models.assist_step import AssistStep
 from app.models.plan import Plan
 from app.models.search_event import SearchEvent
 from app.providers import get_active_providers
-from app.services import plan_service, prompt_service, search_service, usage_service
+from app.services import plan_service, prompt_service, search_service, usage_service, provider_setting_service
 
 PIPELINE_STEPS = [
     "intake.normalize",
@@ -264,7 +264,10 @@ def _fetch_real_search_results(
             }
 
     settings = get_settings()
-    providers = get_active_providers(settings)
+    enabled_keys = provider_setting_service.get_enabled_providers(db, "assist")
+    providers = get_active_providers(settings, allowed_keys=enabled_keys)
+    if not providers:
+        providers = get_active_providers(settings, allowed_keys=["marketcheck"])
 
     items: List[Dict[str, Any]] = []
     total = 0

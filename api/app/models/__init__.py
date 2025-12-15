@@ -13,3 +13,4 @@ from app.models.assist_case import AssistCase
 from app.models.assist_step import AssistStep
 from app.models.assist_artifact import AssistArtifact
 from app.models.prompt_template import PromptTemplate
+from app.models.provider_setting import ProviderSetting

@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import get_optional_user
 from app.providers import get_active_providers
+from app.services import search_service, usage_service, plan_service, provider_setting_service
 from app.schemas import search as search_schema
 from app.services import search_service
 from app.services import usage_service
@@ -243,7 +244,11 @@ def search(
         return cached_response
 
     settings = get_settings()
-    providers = get_active_providers(settings)
+    enabled_keys = provider_setting_service.get_enabled_providers(db, "search")
+    providers = get_active_providers(settings, allowed_keys=enabled_keys)
+    if not providers:
+        # fail-safe fallback to marketcheck instantiation
+        providers = get_active_providers(settings, allowed_keys=["marketcheck"])
 
     items = []
     total = 0
