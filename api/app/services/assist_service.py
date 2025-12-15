@@ -1,6 +1,7 @@
 import hashlib
 import json
 import time
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -218,6 +219,7 @@ def _fetch_real_search_results(
     user,
     intake_payload: Dict[str, Any],
     plan: Optional[Plan],
+    case_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     q, filters, page_size = _extract_search_query(intake_payload)
     plan_limit, quota_message = _resolve_search_limit(plan)
@@ -288,13 +290,11 @@ def _fetch_real_search_results(
             total += provider_total
             sources.append(meta)
         except Exception as exc:  # noqa: BLE001
-            status = "error"
-            error_code = "provider_error"
             meta = {"name": getattr(provider, "name", "unknown"), "error": "request_failed"}
             sources.append(meta)
             logging.getLogger(__name__).warning(
                 "market.scout provider failed case=%s provider=%s err=%s",
-                case.id,
+                case_id,
                 getattr(provider, "name", "unknown"),
                 exc,
             )
@@ -422,174 +422,291 @@ def _format_price(price: Optional[int]) -> str:
 
 
 def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
-    if case.status == "running":
-        return case
-    plan = plan_service.get_active_plan(db, user)
-    limits = plan_limits(plan)
+    logger = logging.getLogger(__name__)
+    try:
+        if case.status == "running":
+            return case
 
-    _reset_runs(case)
-    if limits["watch_runs_per_day"] is not None and case.runs_today >= limits["watch_runs_per_day"]:
-        case.status = "queued"
+        plan = plan_service.get_active_plan(db, user)
+        limits = plan_limits(plan)
+
+        _reset_runs(case)
+        if limits["watch_runs_per_day"] is not None and case.runs_today >= limits["watch_runs_per_day"]:
+            case.status = "queued"
+            db.add(case)
+            db.commit()
+            return case
+
+        previous_market = _get_previous_search_results(db, case.id)
+        prev_report = (
+            db.query(AssistArtifact)
+            .filter(AssistArtifact.case_id == case.id, AssistArtifact.type == "report_md")
+            .order_by(AssistArtifact.id.desc())
+            .first()
+        )
+        prev_report_payload = None
+        if prev_report:
+            prev_report_payload = {
+                "content_text": prev_report.content_text,
+                "content_json": prev_report.content_json,
+            }
+
+        # reset steps/artifacts for the new run
+        db.query(AssistStep).filter(AssistStep.case_id == case.id).delete()
+        db.query(AssistArtifact).filter(AssistArtifact.case_id == case.id).delete()
+        db.commit()
+
+        case.status = "running"
+        case.last_run_at = datetime.utcnow()
+        case.runs_today = (case.runs_today or 0) + 1
         db.add(case)
         db.commit()
-        return case
 
-    previous_market = _get_previous_search_results(db, case.id)
-    prev_report = (
-        db.query(AssistArtifact)
-        .filter(AssistArtifact.case_id == case.id, AssistArtifact.type == "report_md")
-        .order_by(AssistArtifact.id.desc())
-        .first()
-    )
-    prev_report_payload = None
-    if prev_report:
-        prev_report_payload = {
-            "content_text": prev_report.content_text,
-            "content_json": prev_report.content_json,
+        # intake.normalize (placeholder)
+        intake_step = AssistStep(
+            case_id=case.id,
+            step_key="intake.normalize",
+            status="running",
+            input_json=case.intake_payload or {},
+            started_at=datetime.utcnow(),
+        )
+        db.add(intake_step)
+        db.commit()
+        normalized_payload = case.intake_payload or {}
+        case.normalized_payload = normalized_payload
+        intake_step.status = "succeeded"
+        intake_step.output_json = normalized_payload
+        intake_step.finished_at = datetime.utcnow()
+        db.add(intake_step)
+        db.add(case)
+        db.commit()
+
+        market_step = AssistStep(
+            case_id=case.id,
+            step_key="market.scout",
+            status="running",
+            input_json=case.intake_payload or {},
+            started_at=datetime.utcnow(),
+        )
+        db.add(market_step)
+        db.commit()
+
+        search_res = _fetch_real_search_results(db, user, case.intake_payload or {}, plan, case_id=case.id)
+        if search_res.get("status") == "quota_exceeded":
+            market_step.status = "blocked"
+            market_step.output_json = {"reason": "quota_exceeded", **(search_res.get("payload") or {})}
+            market_step.finished_at = datetime.utcnow()
+            db.add(market_step)
+            db.commit()
+
+            reset_at = search_res.get("reset_at") or (
+                datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            )
+            detail = search_res.get("payload") or {}
+            report_text = (
+                f"Daily search quota reached ({detail.get('used')}/{detail.get('limit')}). "
+                f"Resets at {reset_at.isoformat()}."
+            )
+            _add_artifact(db, case.id, "report_md", report_text, detail)
+            case.status = "queued" if case.mode == "watch" else "failed"
+            if case.mode == "watch":
+                case.next_run_at = reset_at
+            else:
+                case.next_run_at = None
+            case.updated_at = datetime.utcnow()
+            db.add(case)
+            db.commit()
+            db.refresh(case)
+            return case
+
+        if search_res.get("status") == "error":
+            market_step.status = "failed"
+            market_step.error = search_res.get("error_code") or "provider_error"
+            market_step.finished_at = datetime.utcnow()
+            db.add(market_step)
+            db.commit()
+            case.status = "failed"
+            if case.mode == "watch" and limits["watch_enabled"]:
+                _compute_next_run(case, limits)
+            else:
+                case.next_run_at = None
+            case.updated_at = datetime.utcnow()
+            db.add(case)
+            db.commit()
+            db.refresh(case)
+            return case
+
+        raw_items = search_res.get("items") or []
+        page_size = search_res.get("page_size") or SCOUT_MAX_ITEMS
+        normalized_items = _normalize_market_items(raw_items, page_size)
+        signature = _compute_signature(normalized_items)
+        total = search_res.get("total") or 0
+        market_output = {
+            "items": normalized_items,
+            "signature": signature,
+            "total": total,
         }
-
-    # reset steps/artifacts for the new run
-    db.query(AssistStep).filter(AssistStep.case_id == case.id).delete()
-    db.query(AssistArtifact).filter(AssistArtifact.case_id == case.id).delete()
-    db.commit()
-
-    case.status = "running"
-    case.last_run_at = datetime.utcnow()
-    case.runs_today = (case.runs_today or 0) + 1
-    db.add(case)
-    db.commit()
-
-    # intake.normalize (placeholder)
-    intake_step = AssistStep(
-        case_id=case.id,
-        step_key="intake.normalize",
-        status="running",
-        input_json=case.intake_payload or {},
-        started_at=datetime.utcnow(),
-    )
-    db.add(intake_step)
-    db.commit()
-    normalized_payload = case.intake_payload or {}
-    case.normalized_payload = normalized_payload
-    intake_step.status = "succeeded"
-    intake_step.output_json = normalized_payload
-    intake_step.finished_at = datetime.utcnow()
-    db.add(intake_step)
-    db.add(case)
-    db.commit()
-
-    market_step = AssistStep(
-        case_id=case.id,
-        step_key="market.scout",
-        status="running",
-        input_json=case.intake_payload or {},
-        started_at=datetime.utcnow(),
-    )
-    db.add(market_step)
-    db.commit()
-
-    search_res = _fetch_real_search_results(db, user, case.intake_payload or {}, plan)
-    if search_res.get("status") == "quota_exceeded":
-        market_step.status = "blocked"
-        market_step.output_json = {"reason": "quota_exceeded", **(search_res.get("payload") or {})}
+        if search_res.get("quota"):
+            market_output["quota"] = search_res["quota"]
+        market_step.status = "succeeded"
+        market_step.output_json = market_output
         market_step.finished_at = datetime.utcnow()
         db.add(market_step)
         db.commit()
 
-        reset_at = search_res.get("reset_at") or (
-            datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-        )
-        detail = search_res.get("payload") or {}
-        report_text = (
-            f"Daily search quota reached ({detail.get('used')}/{detail.get('limit')}). "
-            f"Resets at {reset_at.isoformat()}."
-        )
-        _add_artifact(db, case.id, "report_md", report_text, detail)
-        case.status = "queued" if case.mode == "watch" else "failed"
-        if case.mode == "watch":
-            case.next_run_at = reset_at
-        else:
-            case.next_run_at = None
-        case.updated_at = datetime.utcnow()
-        db.add(case)
-        db.commit()
-        db.refresh(case)
-        return case
+        case.normalized_payload = {"q": search_res.get("q"), **(search_res.get("filters") or {})}
 
-    if search_res.get("status") == "error":
-        market_step.status = "failed"
-        market_step.error = search_res.get("error_code") or "provider_error"
-        market_step.finished_at = datetime.utcnow()
-        db.add(market_step)
-        db.commit()
-        case.status = "failed"
-        if case.mode == "watch" and limits["watch_enabled"]:
-            _compute_next_run(case, limits)
-        else:
-            case.next_run_at = None
-        case.updated_at = datetime.utcnow()
-        db.add(case)
-        db.commit()
-        db.refresh(case)
-        return case
+        has_delta, delta_info = _detect_delta(normalized_items, signature, previous_market)
 
-    raw_items = search_res.get("items") or []
-    page_size = search_res.get("page_size") or SCOUT_MAX_ITEMS
-    normalized_items = _normalize_market_items(raw_items, page_size)
-    signature = _compute_signature(normalized_items)
-    total = search_res.get("total") or 0
-    market_output = {
-        "items": normalized_items,
-        "signature": signature,
-        "total": total,
-    }
-    if search_res.get("quota"):
-        market_output["quota"] = search_res["quota"]
-    market_step.status = "succeeded"
-    market_step.output_json = market_output
-    market_step.finished_at = datetime.utcnow()
-    db.add(market_step)
-    db.commit()
-
-    case.normalized_payload = {"q": search_res.get("q"), **(search_res.get("filters") or {})}
-
-    has_delta, delta_info = _detect_delta(normalized_items, signature, previous_market)
-
-    if case.mode == "watch" and not has_delta:
-        # Skip expensive steps; still surface summary and keep previous report if present
-        delta_text = "No new listings or price changes since last run."
-        if delta_info.get("reason") == "signature_match":
-            delta_text = "No change detected (signature match)."
-        _add_artifact(
-            db,
-            case.id,
-            "delta_summary",
-            delta_text,
-            {"delta": delta_info, "signature": signature, "total": total},
-        )
-        if prev_report_payload:
+        if case.mode == "watch" and not has_delta:
+            # Skip expensive steps; still surface summary and keep previous report if present
+            delta_text = "No new listings or price changes since last run."
+            if delta_info.get("reason") == "signature_match":
+                delta_text = "No change detected (signature match)."
             _add_artifact(
                 db,
                 case.id,
-                "report_md",
-                prev_report_payload.get("content_text"),
-                prev_report_payload.get("content_json"),
+                "delta_summary",
+                delta_text,
+                {"delta": delta_info, "signature": signature, "total": total},
             )
+            if prev_report_payload:
+                _add_artifact(
+                    db,
+                    case.id,
+                    "report_md",
+                    prev_report_payload.get("content_text"),
+                    prev_report_payload.get("content_json"),
+                )
 
-        for step_key in ["risk.flags", "score.rank", "report.write"]:
-            step = AssistStep(
-                case_id=case.id,
-                step_key=step_key,
-                status="succeeded",
-                input_json={"reason": "no_delta"},
-                output_json={"skipped": True, "delta": delta_info},
-                started_at=datetime.utcnow(),
-                finished_at=datetime.utcnow(),
-            )
-            db.add(step)
+            for step_key in ["risk.flags", "score.rank", "report.write"]:
+                step = AssistStep(
+                    case_id=case.id,
+                    step_key=step_key,
+                    status="succeeded",
+                    input_json={"reason": "no_delta"},
+                    output_json={"skipped": True, "delta": delta_info},
+                    started_at=datetime.utcnow(),
+                    finished_at=datetime.utcnow(),
+                )
+                db.add(step)
+            db.commit()
+
+            case.status = "queued"
+            if case.mode == "watch" and limits["watch_enabled"]:
+                _compute_next_run(case, limits)
+            else:
+                case.next_run_at = None
+            case.updated_at = datetime.utcnow()
+            db.add(case)
+            db.commit()
+            db.refresh(case)
+            return case
+
+        # risk.flags (simple heuristic)
+        risk_step = AssistStep(
+            case_id=case.id,
+            step_key="risk.flags",
+            status="running",
+            input_json={"items": normalized_items},
+            started_at=datetime.utcnow(),
+        )
+        db.add(risk_step)
+        db.commit()
+        risk_flags: List[Dict[str, Any]] = []
+        for item in normalized_items:
+            if item.get("price") is None:
+                risk_flags.append({"listing_id": item.get("listing_id"), "flag": "missing_price", "severity": "medium"})
+            if item.get("mileage") and item.get("year"):
+                year_val = _safe_int(item.get("year"))
+                if year_val:
+                    age = datetime.utcnow().year - year_val
+                    if age > 0:
+                        avg_miles = item["mileage"] / age
+                        if avg_miles > 20000:
+                            risk_flags.append(
+                                {"listing_id": item.get("listing_id"), "flag": "high_annual_mileage", "severity": "low"}
+                            )
+        risk_step.status = "succeeded"
+        risk_step.output_json = {"flags": risk_flags}
+        risk_step.finished_at = datetime.utcnow()
+        db.add(risk_step)
         db.commit()
 
-        case.status = "queued"
+        # score.rank (basic price-based ranking)
+        score_step = AssistStep(
+            case_id=case.id,
+            step_key="score.rank",
+            status="running",
+            input_json={"items": normalized_items},
+            started_at=datetime.utcnow(),
+        )
+        db.add(score_step)
+        db.commit()
+        ranked = sorted(normalized_items, key=lambda x: (x.get("price") is None, x.get("price") or float("inf")))
+        scores = []
+        for idx, item in enumerate(ranked):
+            base = max(100 - idx * 5, 40)
+            scores.append({"listing_id": item.get("listing_id"), "score": base})
+        score_step.status = "succeeded"
+        score_step.output_json = {"scores": scores, "ranked_ids": [s["listing_id"] for s in scores]}
+        score_step.finished_at = datetime.utcnow()
+        db.add(score_step)
+        db.commit()
+
+        # report.write
+        report_step = AssistStep(
+            case_id=case.id,
+            step_key="report.write",
+            status="running",
+            input_json={"items": normalized_items, "scores": scores, "flags": risk_flags},
+            started_at=datetime.utcnow(),
+        )
+        db.add(report_step)
+        db.commit()
+
+        top_lines = []
+        for item in ranked[:5]:
+            title = item.get("title") or "Listing"
+            price_txt = _format_price(item.get("price"))
+            year_txt = str(item.get("year") or "N/A")
+            location_txt = item.get("location") or "N/A"
+            url = item.get("url") or ""
+            suffix = f" - {url}" if url else ""
+            top_lines.append(f"- {title} ({year_txt}) - {price_txt} - {location_txt}{suffix}")
+
+        report_md = "\n".join(
+            [
+                f"## Market Scout Results ({len(normalized_items)} items, total {total})",
+                "",
+                "Top picks:",
+                *top_lines,
+                "",
+                "Delta detected" if has_delta else "No significant delta detected",
+            ]
+        )
+
+        report_step.status = "succeeded"
+        report_step.output_json = {"report_md": report_md, "delta": delta_info, "signature": signature}
+        report_step.finished_at = datetime.utcnow()
+        db.add(report_step)
+        db.commit()
+
+        _add_artifact(
+            db,
+            case.id,
+            "report_md",
+            report_md,
+            {
+                "items": normalized_items,
+                "scores": scores,
+                "flags": risk_flags,
+                "signature": signature,
+                "delta": delta_info,
+            },
+        )
+
+        case.status = "completed" if case.mode == "one_shot" else "queued"
         if case.mode == "watch" and limits["watch_enabled"]:
             _compute_next_run(case, limits)
         else:
@@ -599,119 +716,22 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         db.commit()
         db.refresh(case)
         return case
-
-    # risk.flags (simple heuristic)
-    risk_step = AssistStep(
-        case_id=case.id,
-        step_key="risk.flags",
-        status="running",
-        input_json={"items": normalized_items},
-        started_at=datetime.utcnow(),
-    )
-    db.add(risk_step)
-    db.commit()
-    risk_flags: List[Dict[str, Any]] = []
-    for item in normalized_items:
-        if item.get("price") is None:
-            risk_flags.append({"listing_id": item.get("listing_id"), "flag": "missing_price", "severity": "medium"})
-        if item.get("mileage") and item.get("year"):
-            year_val = _safe_int(item.get("year"))
-            if year_val:
-                age = datetime.utcnow().year - year_val
-                if age > 0:
-                    avg_miles = item["mileage"] / age
-                    if avg_miles > 20000:
-                        risk_flags.append(
-                            {"listing_id": item.get("listing_id"), "flag": "high_annual_mileage", "severity": "low"}
-                        )
-    risk_step.status = "succeeded"
-    risk_step.output_json = {"flags": risk_flags}
-    risk_step.finished_at = datetime.utcnow()
-    db.add(risk_step)
-    db.commit()
-
-    # score.rank (basic price-based ranking)
-    score_step = AssistStep(
-        case_id=case.id,
-        step_key="score.rank",
-        status="running",
-        input_json={"items": normalized_items},
-        started_at=datetime.utcnow(),
-    )
-    db.add(score_step)
-    db.commit()
-    ranked = sorted(normalized_items, key=lambda x: (x.get("price") is None, x.get("price") or float("inf")))
-    scores = []
-    for idx, item in enumerate(ranked):
-        base = max(100 - idx * 5, 40)
-        scores.append({"listing_id": item.get("listing_id"), "score": base})
-    score_step.status = "succeeded"
-    score_step.output_json = {"scores": scores, "ranked_ids": [s["listing_id"] for s in scores]}
-    score_step.finished_at = datetime.utcnow()
-    db.add(score_step)
-    db.commit()
-
-    # report.write
-    report_step = AssistStep(
-        case_id=case.id,
-        step_key="report.write",
-        status="running",
-        input_json={"items": normalized_items, "scores": scores, "flags": risk_flags},
-        started_at=datetime.utcnow(),
-    )
-    db.add(report_step)
-    db.commit()
-
-    top_lines = []
-    for item in ranked[:5]:
-        title = item.get("title") or "Listing"
-        price_txt = _format_price(item.get("price"))
-        year_txt = str(item.get("year") or "N/A")
-        location_txt = item.get("location") or "N/A"
-        url = item.get("url") or ""
-        top_lines.append(f"- {title} ({year_txt}) — {price_txt} — {location_txt}{f' — {url}' if url else ''}")
-
-    report_md = "\n".join(
-        [
-            f"## Market Scout Results ({len(normalized_items)} items, total {total})",
-            "",
-            "Top picks:",
-            *top_lines,
-            "",
-            "Delta detected" if has_delta else "No significant delta detected",
-        ]
-    )
-
-    report_step.status = "succeeded"
-    report_step.output_json = {"report_md": report_md, "delta": delta_info, "signature": signature}
-    report_step.finished_at = datetime.utcnow()
-    db.add(report_step)
-    db.commit()
-
-    _add_artifact(
-        db,
-        case.id,
-        "report_md",
-        report_md,
-        {
-            "items": normalized_items,
-            "scores": scores,
-            "flags": risk_flags,
-            "signature": signature,
-            "delta": delta_info,
-        },
-    )
-
-    case.status = "completed" if case.mode == "one_shot" else "queued"
-    if case.mode == "watch" and limits["watch_enabled"]:
-        _compute_next_run(case, limits)
-    else:
-        case.next_run_at = None
-    case.updated_at = datetime.utcnow()
-    db.add(case)
-    db.commit()
-    db.refresh(case)
-    return case
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception(
+            "assist run_case_inline failed case=%s user=%s",
+            case.id if case else None,
+            getattr(user, "id", None),
+        )
+        try:
+            case.status = "failed"
+            case.next_run_at = None
+            case.updated_at = datetime.utcnow()
+            db.add(case)
+            db.commit()
+        except Exception:
+            db.rollback()
+        return case
 
 
 def list_user_cases(db: Session, user_id: int, status: Optional[str] = None) -> List[AssistCase]:
