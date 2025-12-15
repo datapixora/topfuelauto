@@ -73,6 +73,7 @@
 71. [x] Authenticated web calls send Bearer headers; /auth/me & assist submit handle 401 with clean login redirect/CORS-safe.
 72. [x] search_events.query now always populated; analytics logging is non-fatal to prevent Assist/Search 500s.
 73. [x] Admin provider manager added; provider_settings table controls enabled/priority/mode; search & assist honor enabled providers with marketcheck fallback.
+74. [x] Fixed Alembic multiple-heads error by merging provider_settings branch with main migration head.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
