@@ -203,30 +203,6 @@ export default function TakedownPage() {
             </li>
           </ul>
         </section>
-
-        <section className="mb-8 border-t pt-8">
-          <h2 className="text-2xl font-semibold mb-4">خلاصه فارسی (Persian Summary)</h2>
-          <div className="text-right" dir="rtl">
-            <p className="mb-4">
-              اگر فکر می‌کنید محتوایی در تاپ‌فیول‌اتو حقوق شما را نقض می‌کند، می‌توانید درخواست حذف ارسال کنید.
-            </p>
-            <p className="mb-4">
-              <strong>نقض کپی‌رایت (DMCA):</strong> اطلاعات مورد نیاز شامل شناسایی اثر، URL محتوای نقض‌کننده،
-              اطلاعات تماس شما، و بیانیه حسن نیت است. امضای فیزیکی یا الکترونیکی لازم است.
-            </p>
-            <p className="mb-4">
-              <strong>ارسال درخواست:</strong> به آدرس legal@topfuelauto.com ایمیل بزنید با موضوع "DMCA Takedown Request".
-              ما ظرف ۵-۷ روز کاری پاسخ خواهیم داد.
-            </p>
-            <p className="mb-4">
-              <strong>نکته مهم:</strong> ما صاحب محتوا نیستیم. ما اطلاعات عمومی را از منابع شخص ثالث جمع‌آوری
-              می‌کنیم. حذف از تاپ‌فیول‌اتو آن را از منبع اصلی حذف نمی‌کند.
-            </p>
-            <p>
-              برای سوالات عمومی یا پشتیبانی، به support@topfuelauto.com ایمیل بزنید.
-            </p>
-          </div>
-        </section>
       </div>
     </div>
   );
