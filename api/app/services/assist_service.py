@@ -1,14 +1,20 @@
+import hashlib
+import json
+import time
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.models.assist_artifact import AssistArtifact
 from app.models.assist_case import AssistCase
 from app.models.assist_step import AssistStep
-from app.models.assist_artifact import AssistArtifact
 from app.models.plan import Plan
-from app.services import plan_service, prompt_service
+from app.models.search_event import SearchEvent
+from app.providers import get_active_providers
+from app.services import plan_service, prompt_service, search_service, usage_service
 
 PIPELINE_STEPS = [
     "intake.normalize",
@@ -17,6 +23,9 @@ PIPELINE_STEPS = [
     "score.rank",
     "report.write",
 ]
+
+DEFAULT_FREE_SEARCHES_PER_DAY = 5
+SCOUT_MAX_ITEMS = 20
 
 
 def _today() -> datetime.date:
@@ -37,6 +46,297 @@ def plan_limits(plan: Optional[Plan]) -> dict:
         "watch_runs_per_day": plan.assist_watch_runs_per_day if plan else None,
         "budget_per_day": plan.assist_ai_budget_cents_per_day if plan else None,
         "reruns_per_day": plan.assist_reruns_per_day if plan else None,
+    }
+
+
+def _resolve_search_limit(plan: Optional[Plan]) -> Tuple[int | None, str]:
+    plan_limit = None
+    quota_message = "Daily search limit reached. Upgrade to continue."
+    if plan and plan.searches_per_day is not None:
+        plan_limit = plan.searches_per_day
+    elif plan and plan.key == "free":
+        plan_limit = DEFAULT_FREE_SEARCHES_PER_DAY
+    elif not plan:
+        plan_limit = DEFAULT_FREE_SEARCHES_PER_DAY
+    if plan and plan.quota_reached_message:
+        quota_message = plan.quota_reached_message
+    return plan_limit, quota_message
+
+
+def _safe_int(value: Any) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        digits = "".join(ch for ch in value if ch.isdigit() or ch == "-")
+        if digits and digits.strip("-").isdigit():
+            try:
+                return int(digits)
+            except ValueError:
+                return None
+    return None
+
+
+def _extract_search_query(intake_payload: Dict[str, Any]) -> Tuple[str, Dict[str, Any], int]:
+    payload = intake_payload or {}
+    search_block = payload.get("search") or payload.get("query") or {}
+    if isinstance(search_block, str):
+        search_block = {"q": search_block}
+
+    q = (
+        search_block.get("q")
+        or search_block.get("query")
+        or payload.get("q")
+        or payload.get("query")
+        or payload.get("notes")
+        or ""
+    )
+    filters = {
+        "make": search_block.get("make") or payload.get("make"),
+        "model": search_block.get("model") or payload.get("model"),
+        "year_min": search_block.get("year_min") or payload.get("year_min"),
+        "year_max": search_block.get("year_max") or payload.get("year_max"),
+        "price_min": search_block.get("price_min") or payload.get("price_min"),
+        "price_max": search_block.get("price_max") or payload.get("price_max"),
+        "location": search_block.get("location") or payload.get("location"),
+        "sort": search_block.get("sort") or payload.get("sort"),
+    }
+    page_size = search_block.get("page_size") or payload.get("page_size") or SCOUT_MAX_ITEMS
+    try:
+        page_size_int = int(page_size)
+    except Exception:  # noqa: BLE001
+        page_size_int = SCOUT_MAX_ITEMS
+    page_size_int = max(1, min(page_size_int, SCOUT_MAX_ITEMS))
+    return q.strip() or "car search", filters, page_size_int
+
+
+def _normalize_market_items(raw_items: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    for item in raw_items[:limit]:
+        listing_id = item.get("listing_id") or item.get("id")
+        normalized.append(
+            {
+                "listing_id": listing_id,
+                "url": item.get("url"),
+                "title": item.get("title"),
+                "price": _safe_int(item.get("price")),
+                "year": item.get("year"),
+                "mileage": _safe_int(item.get("mileage") or item.get("miles") or item.get("odometer")),
+                "location": item.get("location"),
+            }
+        )
+    return normalized
+
+
+def _compute_signature(items: List[Dict[str, Any]]) -> str:
+    payload = [
+        {
+            "listing_id": item.get("listing_id"),
+            "price": item.get("price"),
+            "mileage": item.get("mileage"),
+            "year": item.get("year"),
+        }
+        for item in sorted(items, key=lambda x: x.get("listing_id") or "")
+    ]
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
+
+
+def _get_previous_search_results(db: Session, case_id: int) -> Dict[str, Any] | None:
+    step = (
+        db.query(AssistStep)
+        .filter(AssistStep.case_id == case_id, AssistStep.step_key == "market.scout", AssistStep.status == "succeeded")
+        .order_by(AssistStep.id.desc())
+        .first()
+    )
+    if not step or not step.output_json:
+        return None
+    return {"output": step.output_json, "finished_at": step.finished_at}
+
+
+def _detect_delta(
+    current_items: List[Dict[str, Any]],
+    current_signature: str,
+    previous_output: Dict[str, Any] | None,
+) -> Tuple[bool, Dict[str, Any]]:
+    if not previous_output:
+        return True, {"reason": "first_run"}
+
+    prev_payload = previous_output.get("output") if isinstance(previous_output, dict) else previous_output
+    prev_signature = prev_payload.get("signature") if isinstance(prev_payload, dict) else None
+    prev_items = prev_payload.get("items") if isinstance(prev_payload, dict) else []
+    prev_finished_at = previous_output.get("finished_at") if isinstance(previous_output, dict) else None
+
+    if prev_signature and prev_signature == current_signature:
+        return False, {"reason": "signature_match", "previous_finished_at": prev_finished_at}
+
+    prev_map = {i.get("listing_id"): i for i in prev_items or [] if i.get("listing_id")}
+    curr_map = {i.get("listing_id"): i for i in current_items if i.get("listing_id")}
+
+    new_ids = [lid for lid in curr_map.keys() if lid not in prev_map]
+    removed_ids = [lid for lid in prev_map.keys() if lid not in curr_map]
+    price_changes = []
+    for lid in curr_map.keys() & prev_map.keys():
+        prev_price = prev_map[lid].get("price")
+        curr_price = curr_map[lid].get("price")
+        if prev_price is not None and curr_price is not None and prev_price != curr_price:
+            price_changes.append({"listing_id": lid, "from": prev_price, "to": curr_price})
+
+    if new_ids or removed_ids or price_changes:
+        return True, {
+            "reason": "delta",
+            "new_ids": new_ids,
+            "removed_ids": removed_ids,
+            "price_changes": price_changes,
+            "previous_finished_at": prev_finished_at,
+        }
+
+    return False, {"reason": "no_meaningful_change", "previous_finished_at": prev_finished_at}
+
+
+def _add_artifact(
+    db: Session,
+    case_id: int,
+    artifact_type: str,
+    content_text: str | None,
+    content_json: Dict[str, Any] | None = None,
+):
+    db.add(
+        AssistArtifact(
+            case_id=case_id,
+            type=artifact_type,
+            content_text=content_text,
+            content_json=content_json,
+        )
+    )
+    db.commit()
+
+
+def _fetch_real_search_results(
+    db: Session,
+    user,
+    intake_payload: Dict[str, Any],
+    plan: Optional[Plan],
+) -> Dict[str, Any]:
+    q, filters, page_size = _extract_search_query(intake_payload)
+    plan_limit, quota_message = _resolve_search_limit(plan)
+    user_id = getattr(user, "id", None) if user else None
+    reset_at = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    query_normalized = " ".join(q.strip().lower().split())
+
+    if user_id and plan_limit is not None:
+        usage = usage_service.get_or_create_today_usage(db, user_id)
+        if usage.search_count >= plan_limit:
+            payload = {
+                "detail": quota_message,
+                "code": "quota_exceeded",
+                "limit": plan_limit,
+                "used": usage.search_count,
+                "remaining": max(plan_limit - usage.search_count, 0),
+                "reset_at": reset_at.isoformat(),
+            }
+            try:
+                search_service.log_search_event(
+                    db,
+                    user_id=user_id,
+                    session_id=None,
+                    query_raw=q,
+                    query_normalized=query_normalized,
+                    filters=filters,
+                    providers=[],
+                    result_count=0,
+                    latency_ms=None,
+                    cache_hit=False,
+                    rate_limited=False,
+                    status="error",
+                    error_code="quota_exceeded",
+                )
+            except Exception:
+                pass
+            return {
+                "status": "quota_exceeded",
+                "payload": payload,
+                "reset_at": reset_at,
+                "plan_limit": plan_limit,
+                "q": q,
+                "filters": filters,
+            }
+
+    settings = get_settings()
+    providers = get_active_providers(settings)
+
+    items: List[Dict[str, Any]] = []
+    total = 0
+    sources: List[Dict[str, Any]] = []
+    status = "ok"
+    error_code = None
+    start_ts = time.time()
+
+    try:
+        for provider in providers:
+            provider_items, provider_total, meta = provider.search_listings(
+                query=q,
+                filters=filters,
+                page=1,
+                page_size=page_size,
+            )
+            items.extend(provider_items[:page_size])
+            total += provider_total
+            sources.append(meta)
+    except Exception:
+        status = "error"
+        error_code = "provider_error"
+
+    latency_ms = int((time.time() - start_ts) * 1000)
+
+    usage = None
+    remaining = None
+    quota_info = None
+    if user_id:
+        if total > 0:
+            usage = usage_service.increment_search_usage(db, user_id)
+        else:
+            usage = usage_service.get_or_create_today_usage(db, user_id)
+        if plan_limit is not None:
+            remaining = max(plan_limit - usage.search_count, 0)
+        quota_info = {
+            "limit": plan_limit,
+            "used": usage.search_count if usage else None,
+            "remaining": remaining,
+            "reset_at": reset_at if plan_limit is not None else None,
+        }
+
+    try:
+        search_service.log_search_event(
+            db,
+            user_id=user_id,
+            session_id=None,
+            query_raw=q,
+            query_normalized=query_normalized,
+            filters=filters,
+            providers=[p.name for p in providers],
+            result_count=total,
+            latency_ms=latency_ms,
+            cache_hit=False,
+            rate_limited=False,
+            status=status,
+            error_code=error_code,
+        )
+    except Exception:
+        pass
+
+    return {
+        "status": status,
+        "error_code": error_code,
+        "items": items,
+        "total": total,
+        "sources": sources,
+        "quota": quota_info,
+        "plan_limit": plan_limit,
+        "q": q,
+        "filters": filters,
+        "page_size": page_size,
     }
 
 
@@ -104,6 +404,12 @@ def _compute_next_run(case: AssistCase, limits: dict):
     case.next_run_at = datetime.utcnow() + timedelta(hours=hours)
 
 
+def _format_price(price: Optional[int]) -> str:
+    if price is None:
+        return "N/A"
+    return f"${price:,.0f}"
+
+
 def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
     if case.status == "running":
         return case
@@ -117,39 +423,273 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         db.commit()
         return case
 
+    previous_market = _get_previous_search_results(db, case.id)
+    prev_report = (
+        db.query(AssistArtifact)
+        .filter(AssistArtifact.case_id == case.id, AssistArtifact.type == "report_md")
+        .order_by(AssistArtifact.id.desc())
+        .first()
+    )
+    prev_report_payload = None
+    if prev_report:
+        prev_report_payload = {
+            "content_text": prev_report.content_text,
+            "content_json": prev_report.content_json,
+        }
+
+    # reset steps/artifacts for the new run
+    db.query(AssistStep).filter(AssistStep.case_id == case.id).delete()
+    db.query(AssistArtifact).filter(AssistArtifact.case_id == case.id).delete()
+    db.commit()
+
     case.status = "running"
     case.last_run_at = datetime.utcnow()
     case.runs_today = (case.runs_today or 0) + 1
     db.add(case)
     db.commit()
 
-    # mock steps
-    db.query(AssistStep).filter(AssistStep.case_id == case.id).delete()
-    for step_key in PIPELINE_STEPS:
-        step = AssistStep(
-            case_id=case.id,
-            step_key=step_key,
-            status="running",
-            input_json=case.intake_payload or {},
-            started_at=datetime.utcnow(),
-        )
-        db.add(step)
-        db.commit()
-        step.status = "succeeded"
-        step.output_json = {"mock": True, "step": step_key}
-        step.finished_at = datetime.utcnow()
-        db.add(step)
+    # intake.normalize (placeholder)
+    intake_step = AssistStep(
+        case_id=case.id,
+        step_key="intake.normalize",
+        status="running",
+        input_json=case.intake_payload or {},
+        started_at=datetime.utcnow(),
+    )
+    db.add(intake_step)
+    db.commit()
+    normalized_payload = case.intake_payload or {}
+    case.normalized_payload = normalized_payload
+    intake_step.status = "succeeded"
+    intake_step.output_json = normalized_payload
+    intake_step.finished_at = datetime.utcnow()
+    db.add(intake_step)
+    db.add(case)
+    db.commit()
+
+    market_step = AssistStep(
+        case_id=case.id,
+        step_key="market.scout",
+        status="running",
+        input_json=case.intake_payload or {},
+        started_at=datetime.utcnow(),
+    )
+    db.add(market_step)
+    db.commit()
+
+    search_res = _fetch_real_search_results(db, user, case.intake_payload or {}, plan)
+    if search_res.get("status") == "quota_exceeded":
+        market_step.status = "blocked"
+        market_step.output_json = {"reason": "quota_exceeded", **(search_res.get("payload") or {})}
+        market_step.finished_at = datetime.utcnow()
+        db.add(market_step)
         db.commit()
 
-    # artifact
-    db.query(AssistArtifact).filter(AssistArtifact.case_id == case.id).delete()
-    artifact = AssistArtifact(
+        reset_at = search_res.get("reset_at") or (
+            datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        )
+        detail = search_res.get("payload") or {}
+        report_text = (
+            f"Daily search quota reached ({detail.get('used')}/{detail.get('limit')}). "
+            f"Resets at {reset_at.isoformat()}."
+        )
+        _add_artifact(db, case.id, "report_md", report_text, detail)
+        case.status = "queued" if case.mode == "watch" else "failed"
+        if case.mode == "watch":
+            case.next_run_at = reset_at
+        else:
+            case.next_run_at = None
+        case.updated_at = datetime.utcnow()
+        db.add(case)
+        db.commit()
+        db.refresh(case)
+        return case
+
+    if search_res.get("status") == "error":
+        market_step.status = "failed"
+        market_step.error = search_res.get("error_code") or "provider_error"
+        market_step.finished_at = datetime.utcnow()
+        db.add(market_step)
+        db.commit()
+        case.status = "failed"
+        if case.mode == "watch" and limits["watch_enabled"]:
+            _compute_next_run(case, limits)
+        else:
+            case.next_run_at = None
+        case.updated_at = datetime.utcnow()
+        db.add(case)
+        db.commit()
+        db.refresh(case)
+        return case
+
+    raw_items = search_res.get("items") or []
+    page_size = search_res.get("page_size") or SCOUT_MAX_ITEMS
+    normalized_items = _normalize_market_items(raw_items, page_size)
+    signature = _compute_signature(normalized_items)
+    total = search_res.get("total") or 0
+    market_output = {
+        "items": normalized_items,
+        "signature": signature,
+        "total": total,
+    }
+    if search_res.get("quota"):
+        market_output["quota"] = search_res["quota"]
+    market_step.status = "succeeded"
+    market_step.output_json = market_output
+    market_step.finished_at = datetime.utcnow()
+    db.add(market_step)
+    db.commit()
+
+    case.normalized_payload = {"q": search_res.get("q"), **(search_res.get("filters") or {})}
+
+    has_delta, delta_info = _detect_delta(normalized_items, signature, previous_market)
+
+    if case.mode == "watch" and not has_delta:
+        # Skip expensive steps; still surface summary and keep previous report if present
+        delta_text = "No new listings or price changes since last run."
+        if delta_info.get("reason") == "signature_match":
+            delta_text = "No change detected (signature match)."
+        _add_artifact(
+            db,
+            case.id,
+            "delta_summary",
+            delta_text,
+            {"delta": delta_info, "signature": signature, "total": total},
+        )
+        if prev_report_payload:
+            _add_artifact(
+                db,
+                case.id,
+                "report_md",
+                prev_report_payload.get("content_text"),
+                prev_report_payload.get("content_json"),
+            )
+
+        for step_key in ["risk.flags", "score.rank", "report.write"]:
+            step = AssistStep(
+                case_id=case.id,
+                step_key=step_key,
+                status="succeeded",
+                input_json={"reason": "no_delta"},
+                output_json={"skipped": True, "delta": delta_info},
+                started_at=datetime.utcnow(),
+                finished_at=datetime.utcnow(),
+            )
+            db.add(step)
+        db.commit()
+
+        case.status = "queued"
+        if case.mode == "watch" and limits["watch_enabled"]:
+            _compute_next_run(case, limits)
+        else:
+            case.next_run_at = None
+        case.updated_at = datetime.utcnow()
+        db.add(case)
+        db.commit()
+        db.refresh(case)
+        return case
+
+    # risk.flags (simple heuristic)
+    risk_step = AssistStep(
         case_id=case.id,
-        type="report_md",
-        content_text="## Assist Report\n\nThis is a placeholder report. Steps executed successfully.",
-        content_json={"summary": "mock"},
+        step_key="risk.flags",
+        status="running",
+        input_json={"items": normalized_items},
+        started_at=datetime.utcnow(),
     )
-    db.add(artifact)
+    db.add(risk_step)
+    db.commit()
+    risk_flags: List[Dict[str, Any]] = []
+    for item in normalized_items:
+        if item.get("price") is None:
+            risk_flags.append({"listing_id": item.get("listing_id"), "flag": "missing_price", "severity": "medium"})
+        if item.get("mileage") and item.get("year"):
+            year_val = _safe_int(item.get("year"))
+            if year_val:
+                age = datetime.utcnow().year - year_val
+                if age > 0:
+                    avg_miles = item["mileage"] / age
+                    if avg_miles > 20000:
+                        risk_flags.append(
+                            {"listing_id": item.get("listing_id"), "flag": "high_annual_mileage", "severity": "low"}
+                        )
+    risk_step.status = "succeeded"
+    risk_step.output_json = {"flags": risk_flags}
+    risk_step.finished_at = datetime.utcnow()
+    db.add(risk_step)
+    db.commit()
+
+    # score.rank (basic price-based ranking)
+    score_step = AssistStep(
+        case_id=case.id,
+        step_key="score.rank",
+        status="running",
+        input_json={"items": normalized_items},
+        started_at=datetime.utcnow(),
+    )
+    db.add(score_step)
+    db.commit()
+    ranked = sorted(normalized_items, key=lambda x: (x.get("price") is None, x.get("price") or float("inf")))
+    scores = []
+    for idx, item in enumerate(ranked):
+        base = max(100 - idx * 5, 40)
+        scores.append({"listing_id": item.get("listing_id"), "score": base})
+    score_step.status = "succeeded"
+    score_step.output_json = {"scores": scores, "ranked_ids": [s["listing_id"] for s in scores]}
+    score_step.finished_at = datetime.utcnow()
+    db.add(score_step)
+    db.commit()
+
+    # report.write
+    report_step = AssistStep(
+        case_id=case.id,
+        step_key="report.write",
+        status="running",
+        input_json={"items": normalized_items, "scores": scores, "flags": risk_flags},
+        started_at=datetime.utcnow(),
+    )
+    db.add(report_step)
+    db.commit()
+
+    top_lines = []
+    for item in ranked[:5]:
+        title = item.get("title") or "Listing"
+        price_txt = _format_price(item.get("price"))
+        year_txt = str(item.get("year") or "N/A")
+        location_txt = item.get("location") or "N/A"
+        url = item.get("url") or ""
+        top_lines.append(f"- {title} ({year_txt}) — {price_txt} — {location_txt}{f' — {url}' if url else ''}")
+
+    report_md = "\n".join(
+        [
+            f"## Market Scout Results ({len(normalized_items)} items, total {total})",
+            "",
+            "Top picks:",
+            *top_lines,
+            "",
+            "Delta detected" if has_delta else "No significant delta detected",
+        ]
+    )
+
+    report_step.status = "succeeded"
+    report_step.output_json = {"report_md": report_md, "delta": delta_info, "signature": signature}
+    report_step.finished_at = datetime.utcnow()
+    db.add(report_step)
+    db.commit()
+
+    _add_artifact(
+        db,
+        case.id,
+        "report_md",
+        report_md,
+        {
+            "items": normalized_items,
+            "scores": scores,
+            "flags": risk_flags,
+            "signature": signature,
+            "delta": delta_info,
+        },
+    )
 
     case.status = "completed" if case.mode == "one_shot" else "queued"
     if case.mode == "watch" and limits["watch_enabled"]:

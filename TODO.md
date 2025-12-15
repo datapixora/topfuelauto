@@ -69,6 +69,7 @@
 67. [x] Watch scheduler (beat) enqueues due watch cases with plan guards + enqueue lock.
 68. [x] User navigation/auth UX improved (header login state + dashboard link + logout).
 69. [x] Alerts v1 (saved searches + in-app notifications + scheduling).
+70. [x] Assist market.scout now uses real search/provider (quota + signature delta).
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
