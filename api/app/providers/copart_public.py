@@ -60,14 +60,83 @@ class CopartPublicProvider:
         page_size: int,
     ) -> Tuple[List[Dict[str, Any]], int, Dict[str, Any]]:
         params = self.build_params(query, page, page_size)
-        try:
-            resp = httpx.get(self.base_url, params=params, headers=self.headers, timeout=10.0)
-            resp.raise_for_status()
-            data = resp.json()
-            results = data.get("data", {}).get("results") or []
-            normalized = [self.normalize_listing(item) for item in results]
-            total = data.get("data", {}).get("totalElements") or len(results)
-            return normalized, total, {"name": self.name, "enabled": True, "total": total}
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("CopartPublicProvider search failed: %s", exc)
-            return [], 0, {"name": self.name, "enabled": True, "error": "request_failed"}
+        max_retries = 1
+
+        for attempt in range(max_retries + 1):
+            try:
+                resp = httpx.get(self.base_url, params=params, headers=self.headers, timeout=10.0)
+
+                # Capture response metadata for logging
+                status_code = resp.status_code
+                content_type = resp.headers.get("content-type", "")
+                response_snippet = resp.text[:300] if resp.text else ""
+
+                # Check if response is valid JSON before parsing
+                if status_code != 200:
+                    logger.warning(
+                        "CopartPublicProvider non-200 status: provider=%s status=%s content_type=%s snippet=%s",
+                        self.name,
+                        status_code,
+                        content_type,
+                        response_snippet,
+                    )
+                    if attempt < max_retries:
+                        continue
+                    return [], 0, {
+                        "name": self.name,
+                        "enabled": True,
+                        "error": f"http_error_{status_code}",
+                    }
+
+                # Verify content is JSON before parsing
+                is_json_content_type = "application/json" in content_type.lower()
+                body_starts_with_json = response_snippet.strip().startswith(("{", "["))
+
+                if not (is_json_content_type or body_starts_with_json):
+                    logger.warning(
+                        "CopartPublicProvider non-JSON response: provider=%s status=%s content_type=%s snippet=%s",
+                        self.name,
+                        status_code,
+                        content_type,
+                        response_snippet,
+                    )
+                    if attempt < max_retries:
+                        continue
+                    return [], 0, {
+                        "name": self.name,
+                        "enabled": True,
+                        "error": "non_json_response",
+                    }
+
+                # Safe to parse JSON
+                data = resp.json()
+                results = data.get("data", {}).get("results") or []
+                normalized = [self.normalize_listing(item) for item in results]
+                total = data.get("data", {}).get("totalElements") or len(results)
+                return normalized, total, {"name": self.name, "enabled": True, "total": total}
+
+            except httpx.TimeoutException as exc:
+                logger.warning(
+                    "CopartPublicProvider timeout: provider=%s attempt=%s/%s error=%s",
+                    self.name,
+                    attempt + 1,
+                    max_retries + 1,
+                    str(exc),
+                )
+                if attempt < max_retries:
+                    continue
+                return [], 0, {"name": self.name, "enabled": True, "error": "timeout"}
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "CopartPublicProvider search failed: provider=%s attempt=%s/%s error=%s",
+                    self.name,
+                    attempt + 1,
+                    max_retries + 1,
+                    str(exc),
+                )
+                if attempt < max_retries:
+                    continue
+                return [], 0, {"name": self.name, "enabled": True, "error": "request_failed"}
+
+        # Fallback (should not reach here)
+        return [], 0, {"name": self.name, "enabled": True, "error": "unknown"}

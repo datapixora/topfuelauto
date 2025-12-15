@@ -86,6 +86,7 @@
 84. [x] Implement query parser to extract structured filters (make/model) from free-text queries for better MarketCheck results.
 85. [x] Fix search normalization critical bugs: priority rules, MarketCheck q parameter omission, cache key includes final filters.
 86. [x] Add provider capability gating (requires_structured, supports_free_text) to skip MarketCheck without make/model and prevent garbage results.
+87. [x] Harden CopartPublicProvider to handle non-JSON responses (HTML/Cloudflare blocks/403/empty) with status/content-type validation, retries, and graceful error handling.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
