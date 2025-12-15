@@ -220,7 +220,9 @@ def _fetch_real_search_results(
     intake_payload: Dict[str, Any],
     plan: Optional[Plan],
     case_id: Optional[int] = None,
+    case_title: Optional[str] = None,
 ) -> Dict[str, Any]:
+    logger = logging.getLogger(__name__)
     q, filters, page_size = _extract_search_query(intake_payload)
     plan_limit, quota_message = _resolve_search_limit(plan)
     user_id = getattr(user, "id", None) if user else None
@@ -286,12 +288,13 @@ def _fetch_real_search_results(
         provider_start = time.time()
         provider_name = getattr(provider, "name", "unknown")
         providers_executed.append(provider_name)
-        logging.getLogger(__name__).info(
-            "market.scout provider start case=%s provider=%s q=%s filters=%s",
+        logger.info(
+            "market.scout provider start case=%s provider=%s q=%s filters=%s signature=%s",
             case_id,
             provider_name,
             q,
             filters,
+            "pending",
         )
         try:
             provider_items, provider_total, meta = provider.search_listings(
@@ -305,7 +308,7 @@ def _fetch_real_search_results(
             sources.append(meta)
             per_provider_counts[provider_name] = len(provider_items)
             elapsed_ms = int((time.time() - provider_start) * 1000)
-            logging.getLogger(__name__).info(
+            logger.info(
                 "market.scout provider done case=%s provider=%s count=%s elapsed_ms=%s",
                 case_id,
                 provider_name,
@@ -317,7 +320,7 @@ def _fetch_real_search_results(
             sources.append(meta)
             per_provider_counts[provider_name] = 0
             per_provider_errors[provider_name] = str(exc)
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "market.scout provider failed case=%s provider=%s err=%s",
                 case_id,
                 provider_name,
@@ -352,6 +355,10 @@ def _fetch_real_search_results(
         "providers_executed": providers_executed,
         "per_provider_counts": per_provider_counts,
         "per_provider_errors": per_provider_errors,
+        "query_normalized": query_normalized,
+        "filters": filters,
+        "case_id": case_id,
+        "case_title": case_title,
     }
 
     try:
@@ -385,6 +392,9 @@ def _fetch_real_search_results(
         "filters": filters,
         "page_size": page_size,
         "debug": debug_info,
+        "query_normalized": query_normalized,
+        "case_id": case_id,
+        "case_title": case_title,
     }
 
 
@@ -528,7 +538,14 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         db.add(market_step)
         db.commit()
 
-        search_res = _fetch_real_search_results(db, user, case.intake_payload or {}, plan, case_id=case.id)
+        search_res = _fetch_real_search_results(
+            db,
+            user,
+            case.intake_payload or {},
+            plan,
+            case_id=case.id,
+            case_title=case.title,
+        )
         if search_res.get("status") == "quota_exceeded":
             market_step.status = "blocked"
             market_step.output_json = {"reason": "quota_exceeded", **(search_res.get("payload") or {})}
@@ -583,6 +600,12 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
             "signature": signature,
             "total": total,
         }
+        market_output["source_signature"] = signature
+        market_output["cache_used"] = False
+        market_output["case_id"] = case.id
+        market_output["case_title"] = case.title
+        market_output["query_normalized"] = search_res.get("query_normalized")
+        market_output["filters"] = search_res.get("filters")
         if search_res.get("debug"):
             market_output["debug"] = search_res["debug"]
         if search_res.get("quota"):
