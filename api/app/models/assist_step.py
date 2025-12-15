@@ -1,5 +1,6 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Text
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -23,3 +24,5 @@ class AssistStep(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    case = relationship("AssistCase", back_populates="steps")

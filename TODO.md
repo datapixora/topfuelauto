@@ -82,6 +82,7 @@
 80. [x] Added market.scout debug metadata (queries, filters, signatures, providers, counts) to investigate duplicate results.
 81. [x] Added market.scout debug section (query, filters, providers, counts, signature, cache) into step/report to diagnose constant results.
 82. [x] Fixed market.scout query selection to use vehicle info or case title instead of constant \"car search\" fallback.
+83. [x] Fix AssistStep JSON serialization (quota/output_json) + load steps for validation.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)

@@ -5,8 +5,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, joinedload
 
 from app.core.config import get_settings
 from app.models.assist_artifact import AssistArtifact
@@ -27,6 +28,10 @@ PIPELINE_STEPS = [
 
 DEFAULT_FREE_SEARCHES_PER_DAY = 5
 SCOUT_MAX_ITEMS = 20
+
+
+def _json_safe(v):
+    return jsonable_encoder(v)
 
 
 def _today() -> datetime.date:
@@ -166,7 +171,7 @@ def _compute_signature(items: List[Dict[str, Any]]) -> str:
         }
         for item in sorted(items, key=lambda x: x.get("listing_id") or "")
     ]
-    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    serialized = json.dumps(payload, sort_keys=True, separators=( ",", ":"))
     return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
 
 
@@ -179,7 +184,7 @@ def _get_previous_search_results(db: Session, case_id: int) -> Dict[str, Any] | 
     )
     if not step or not step.output_json:
         return None
-    return {"output": step.output_json, "finished_at": step.finished_at}
+    return {"output": step.output_json, "finished_at": step.finished_at.isoformat() if step.finished_at else None}
 
 
 def _detect_delta(
@@ -384,7 +389,7 @@ def _fetch_real_search_results(
             "limit": plan_limit,
             "used": usage.search_count if usage else None,
             "remaining": remaining,
-            "reset_at": reset_at if plan_limit is not None else None,
+            "reset_at": reset_at.isoformat() if (plan_limit is not None and reset_at) else None,
         }
     debug_info = {
         "providers_requested": providers_requested,
@@ -561,7 +566,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         normalized_payload = case.intake_payload or {}
         case.normalized_payload = normalized_payload
         intake_step.status = "succeeded"
-        intake_step.output_json = normalized_payload
+        intake_step.output_json = _json_safe(normalized_payload)
         intake_step.finished_at = datetime.utcnow()
         db.add(intake_step)
         db.add(case)
@@ -587,7 +592,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         )
         if search_res.get("status") == "quota_exceeded":
             market_step.status = "blocked"
-            market_step.output_json = {"reason": "quota_exceeded", **(search_res.get("payload") or {})}
+            market_step.output_json = _json_safe({"reason": "quota_exceeded", **(search_res.get("payload") or {})})
             market_step.finished_at = datetime.utcnow()
             db.add(market_step)
             db.commit()
@@ -655,7 +660,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         if search_res.get("quota"):
             market_output["quota"] = search_res["quota"]
         market_step.status = "succeeded"
-        market_step.output_json = market_output
+        market_step.output_json = _json_safe(market_output)
         market_step.finished_at = datetime.utcnow()
         db.add(market_step)
         db.commit()
@@ -691,7 +696,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
                     step_key=step_key,
                     status="succeeded",
                     input_json={"reason": "no_delta"},
-                    output_json={"skipped": True, "delta": delta_info},
+                    output_json=_json_safe({"skipped": True, "delta": delta_info}),
                     started_at=datetime.utcnow(),
                     finished_at=datetime.utcnow(),
                 )
@@ -734,7 +739,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
                                 {"listing_id": item.get("listing_id"), "flag": "high_annual_mileage", "severity": "low"}
                             )
         risk_step.status = "succeeded"
-        risk_step.output_json = {"flags": risk_flags}
+        risk_step.output_json = _json_safe({"flags": risk_flags})
         risk_step.finished_at = datetime.utcnow()
         db.add(risk_step)
         db.commit()
@@ -755,7 +760,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
             base = max(100 - idx * 5, 40)
             scores.append({"listing_id": item.get("listing_id"), "score": base})
         score_step.status = "succeeded"
-        score_step.output_json = {"scores": scores, "ranked_ids": [s["listing_id"] for s in scores]}
+        score_step.output_json = _json_safe({"scores": scores, "ranked_ids": [s["listing_id"] for s in scores]})
         score_step.finished_at = datetime.utcnow()
         db.add(score_step)
         db.commit()
@@ -774,7 +779,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         top_lines = []
         for item in ranked[:5]:
             title = item.get("title") or "Listing"
-            price_txt = _format_price(item.get("price"))
+            price_txt = _format_price(item.get("price")),
             year_txt = str(item.get("year") or "N/A")
             location_txt = item.get("location") or "N/A"
             url = item.get("url") or ""
@@ -813,7 +818,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         )
 
         report_step.status = "succeeded"
-        report_step.output_json = {"report_md": report_md, "delta": delta_info, "signature": signature}
+        report_step.output_json = _json_safe({"report_md": report_md, "delta": delta_info, "signature": signature})
         report_step.finished_at = datetime.utcnow()
         db.add(report_step)
         db.commit()
@@ -848,7 +853,7 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         db.add(case)
         db.commit()
         db.refresh(case)
-        return case
+        return db.query(AssistCase).options(joinedload(AssistCase.steps)).filter(AssistCase.id == case.id).one()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         logger.exception(

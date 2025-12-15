@@ -1,5 +1,6 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -25,3 +26,5 @@ class AssistCase(Base):
     enqueue_locked_until = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    steps = relationship("AssistStep", back_populates="case", lazy="select")
