@@ -106,9 +106,10 @@ def _extract_search_query(intake_payload: Dict[str, Any], case_title: str | None
     # Parse query to extract structured filters if not explicitly provided
     query_normalized, parsed_filters = query_parser.parse_query(q, explicit_make, explicit_model)
 
+    # Priority: explicit fields override parsed values
     filters = {
-        "make": parsed_filters.get("make") or explicit_make,
-        "model": parsed_filters.get("model") or explicit_model,
+        "make": explicit_make or parsed_filters.get("make"),
+        "model": explicit_model or parsed_filters.get("model"),
         "year_min": search_block.get("year_min") or payload.get("year_min"),
         "year_max": search_block.get("year_max") or payload.get("year_max"),
         "price_min": search_block.get("price_min") or payload.get("price_min"),
@@ -647,18 +648,24 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
         normalized_items = _normalize_market_items(raw_items, page_size)
         signature = _compute_signature(normalized_items)
         total = search_res.get("total") or 0
+        # Extract filters for explicit inclusion
+        filters_used = search_res.get("filters") or {}
+
         market_output = {
             "items": normalized_items,
             "signature": signature,
             "total": total,
+            "query_raw": search_res.get("q"),
+            "query_normalized": search_res.get("query_normalized"),
+            "make": filters_used.get("make"),
+            "model": filters_used.get("model"),
+            "filters": filters_used,
         }
         market_output["source_signature"] = signature
         market_output["search_signature_used"] = signature
         market_output["cache_used"] = False
         market_output["case_id"] = case.id
         market_output["case_title"] = case.title
-        market_output["query_normalized"] = search_res.get("query_normalized")
-        market_output["filters"] = search_res.get("filters")
         if normalized_items:
             first_item = normalized_items[0]
             market_output["sample_first_result_url"] = first_item.get("url")

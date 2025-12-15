@@ -99,9 +99,10 @@ def search(
     # Parse query to extract structured filters
     query_normalized, parsed_filters = query_parser.parse_query(q, make, model)
 
+    # Priority: explicit UI fields override parsed values
     filters = {
-        "make": parsed_filters.get("make") or make,
-        "model": parsed_filters.get("model") or model,
+        "make": make or parsed_filters.get("make"),
+        "model": model or parsed_filters.get("model"),
         "year_min": year_min,
         "year_max": year_max,
         "price_min": price_min,
@@ -191,11 +192,12 @@ def search(
         # fail-safe fallback to marketcheck instantiation
         providers = get_active_providers(settings, allowed_keys=["marketcheck"])
 
+    # Use final filters (after priority override) for cache key
     cache_key = _make_cache_key(
         client_ip,
-        q,
-        make,
-        model,
+        query_normalized,
+        filters.get("make"),
+        filters.get("model"),
         year_min,
         year_max,
         price_min,

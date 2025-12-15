@@ -84,6 +84,7 @@
 82. [x] Fixed market.scout query selection to use vehicle info or case title instead of constant \"car search\" fallback.
 83. [x] Fix AssistStep JSON serialization (quota/output_json) + load steps for validation.
 84. [x] Implement query parser to extract structured filters (make/model) from free-text queries for better MarketCheck results.
+85. [x] Fix search normalization critical bugs: priority rules, MarketCheck q parameter omission, cache key includes final filters.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
