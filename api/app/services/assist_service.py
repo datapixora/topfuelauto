@@ -79,7 +79,7 @@ def _safe_int(value: Any) -> Optional[int]:
     return None
 
 
-def _extract_search_query(intake_payload: Dict[str, Any]) -> Tuple[str, Dict[str, Any], int]:
+def _extract_search_query(intake_payload: Dict[str, Any], case_title: str | None = None) -> Tuple[str, Dict[str, Any], int]:
     payload = intake_payload or {}
     search_block = payload.get("search") or payload.get("query") or {}
     if isinstance(search_block, str):
@@ -109,7 +109,33 @@ def _extract_search_query(intake_payload: Dict[str, Any]) -> Tuple[str, Dict[str
     except Exception:  # noqa: BLE001
         page_size_int = SCOUT_MAX_ITEMS
     page_size_int = max(1, min(page_size_int, SCOUT_MAX_ITEMS))
-    return q.strip() or "car search", filters, page_size_int
+
+    # Prefer a normalized vehicle phrase, then case title, then provided query
+    year_field = search_block.get("year") or payload.get("year")
+    year_min = search_block.get("year_min") or payload.get("year_min")
+    year_max = search_block.get("year_max") or payload.get("year_max")
+    year_val = None
+    if year_field:
+        year_val = year_field
+    elif year_min and year_max and str(year_min) == str(year_max):
+        year_val = year_min
+
+    vehicle_parts = [str(year_val)] if year_val else []
+    if filters.get("make"):
+        vehicle_parts.append(str(filters["make"]))
+    if filters.get("model"):
+        vehicle_parts.append(str(filters["model"]))
+    vehicle_query = " ".join([p for p in vehicle_parts if p])
+
+    candidates = [
+        vehicle_query,
+        q.strip() if isinstance(q, str) else "",
+        (case_title or "").strip(),
+    ]
+    chosen_q = next((c for c in candidates if c), "")
+    if not chosen_q:
+        chosen_q = "auto search"
+    return chosen_q, filters, page_size_int
 
 
 def _normalize_market_items(raw_items: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
@@ -223,7 +249,7 @@ def _fetch_real_search_results(
     case_title: Optional[str] = None,
 ) -> Dict[str, Any]:
     logger = logging.getLogger(__name__)
-    q, filters, page_size = _extract_search_query(intake_payload)
+    q, filters, page_size = _extract_search_query(intake_payload, case_title)
     plan_limit, quota_message = _resolve_search_limit(plan)
     user_id = getattr(user, "id", None) if user else None
     reset_at = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
@@ -279,6 +305,11 @@ def _fetch_real_search_results(
     providers = get_active_providers(settings, allowed_keys=enabled_keys)
     if not providers:
         providers = get_active_providers(settings, allowed_keys=["marketcheck"])
+    logger.info(
+        "market.scout providers selected case=%s providers_enabled=%s",
+        case_id,
+        enabled_keys,
+    )
 
     items: List[Dict[str, Any]] = []
     total = 0
@@ -397,7 +428,7 @@ def _fetch_real_search_results(
         "q": q,
         "filters": filters,
         "page_size": page_size,
-        "debug": debug_info,
+        "debug": {**debug_info, "search_signature": None},
         "query_normalized": query_normalized,
         "case_id": case_id,
         "case_title": case_title,
@@ -609,11 +640,16 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
             "total": total,
         }
         market_output["source_signature"] = signature
+        market_output["search_signature_used"] = signature
         market_output["cache_used"] = False
         market_output["case_id"] = case.id
         market_output["case_title"] = case.title
         market_output["query_normalized"] = search_res.get("query_normalized")
         market_output["filters"] = search_res.get("filters")
+        if normalized_items:
+            first_item = normalized_items[0]
+            market_output["sample_first_result_url"] = first_item.get("url")
+            market_output["sample_first_result_title"] = first_item.get("title")
         if search_res.get("debug"):
             market_output["debug"] = search_res["debug"]
         if search_res.get("quota"):

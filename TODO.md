@@ -81,6 +81,7 @@
 79. [x] Market.scout step now records provider debug (requested/enabled/executed counts & errors) to trace copart usage.
 80. [x] Added market.scout debug metadata (queries, filters, signatures, providers, counts) to investigate duplicate results.
 81. [x] Added market.scout debug section (query, filters, providers, counts, signature, cache) into step/report to diagnose constant results.
+82. [x] Fixed market.scout query selection to use vehicle info or case title instead of constant \"car search\" fallback.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
