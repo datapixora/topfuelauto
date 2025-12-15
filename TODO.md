@@ -70,6 +70,7 @@
 68. [x] User navigation/auth UX improved (header login state + dashboard link + logout).
 69. [x] Alerts v1 (saved searches + in-app notifications + scheduling).
 70. [x] Assist market.scout now uses real search/provider (quota + signature delta).
+71. [x] Authenticated web calls send Bearer headers; /auth/me & assist submit handle 401 with clean login redirect/CORS-safe.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)

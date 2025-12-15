@@ -1,4 +1,4 @@
-import { getToken } from "./auth";
+import { getToken, clearToken } from "./auth";
 import {
   Listing,
   SearchResult,
@@ -40,14 +40,54 @@ export const authHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-export async function apiGet<T = any>(path: string, init?: RequestInit): Promise<T> {
+const redirectToLogin = () => {
+  if (typeof window === "undefined") return;
+  const next = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+  window.location.href = `/login?next=${next}`;
+};
+
+const handleUnauthorized = (shouldRedirect: boolean) => {
+  clearToken();
+  if (shouldRedirect && typeof window !== "undefined") {
+    redirectToLogin();
+  }
+};
+
+const authFetch = async (
+  path: string,
+  init?: RequestInit,
+  opts?: { requireAuth?: boolean; redirectOn401?: boolean }
+): Promise<Response> => {
+  const requireAuth = opts?.requireAuth ?? true;
+  const redirectOn401 = opts?.redirectOn401 ?? true;
   const absolute = path.startsWith("http") ? path : url(path);
-  const method = (init?.method || "GET").toUpperCase();
+  const token = getToken();
+
+  if (requireAuth && !token) {
+    handleUnauthorized(redirectOn401);
+    throw new Error("Not authenticated");
+  }
+
   const res = await fetch(absolute, {
     ...init,
-    method,
-    headers: { ...(init?.headers || {}), ...authHeaders() },
+    headers: { ...(init?.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
+
+  if (res.status === 401) {
+    handleUnauthorized(redirectOn401);
+    throw new Error("Unauthorized");
+  }
+
+  return res;
+};
+
+export async function apiGet<T = any>(
+  path: string,
+  init?: RequestInit,
+  opts?: { requireAuth?: boolean; redirectOn401?: boolean }
+): Promise<T> {
+  const method = (init?.method || "GET").toUpperCase();
+  const res = await authFetch(path, { ...init, method }, opts);
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
   return res.json();
 }
@@ -158,9 +198,7 @@ export async function signup(email: string, password: string): Promise<TokenResp
 }
 
 export async function getQuota(): Promise<QuotaInfo> {
-  const res = await fetch(url("/auth/me/quota"), {
-    headers: { ...authHeaders() },
-  });
+  const res = await authFetch("/auth/me/quota");
   if (!res.ok) throw new Error("Unable to load quota");
   return res.json();
 }
@@ -173,9 +211,9 @@ export async function listPlans(): Promise<Plan[]> {
 }
 
 export async function startCheckout(planId: number, interval: "month" | "year"): Promise<string> {
-  const res = await fetch(url("/billing/checkout"), {
+  const res = await authFetch("/billing/checkout", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ plan_id: planId, interval }),
   });
   if (!res.ok) {
@@ -230,9 +268,9 @@ export async function alertDetail(
 }
 
 export async function updateAlert(id: number, payload: { name?: string; is_active?: boolean }) {
-  const res = await fetch(url(`/alerts/${id}`), {
+  const res = await authFetch(`/alerts/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -243,9 +281,8 @@ export async function updateAlert(id: number, payload: { name?: string; is_activ
 }
 
 export async function deleteAlert(id: number) {
-  const res = await fetch(url(`/alerts/${id}`), {
+  const res = await authFetch(`/alerts/${id}`, {
     method: "DELETE",
-    headers: { ...authHeaders() },
   });
   if (!res.ok) throw new Error(`Delete failed (${res.status})`);
   return res.json();
@@ -265,9 +302,9 @@ export async function markAllNotificationsRead() {
 }
 
 async function apiPost(path: string, body: any) {
-  const res = await fetch(url(path), {
+  const res = await authFetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -284,9 +321,9 @@ export async function requestBid(payload: {
   full_name: string;
   phone: string;
 }) {
-  const res = await fetch(url("/broker/request-bid"), {
+  const res = await authFetch("/broker/request-bid", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Request failed");
