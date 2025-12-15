@@ -228,6 +228,12 @@ def _fetch_real_search_results(
     user_id = getattr(user, "id", None) if user else None
     reset_at = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
     query_normalized = " ".join(q.strip().lower().split())
+    logger.info(
+        "market.scout start case=%s title=%s q_norm=%s",
+        case_id,
+        case_title,
+        query_normalized,
+    )
 
     if user_id and plan_limit is not None:
         usage = usage_service.get_or_create_today_usage(db, user_id)
@@ -395,6 +401,8 @@ def _fetch_real_search_results(
         "query_normalized": query_normalized,
         "case_id": case_id,
         "case_title": case_title,
+        "cache_used": False,
+        "cache_key": None,
     }
 
 
@@ -737,6 +745,23 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
             suffix = f" - {url}" if url else ""
             top_lines.append(f"- {title} ({year_txt}) - {price_txt} - {location_txt}{suffix}")
 
+        debug_lines = []
+        debug_lines.append(f"- case_id: {case.id}")
+        debug_lines.append(f"- title: {case.title}")
+        debug_lines.append(f"- query: {search_res.get('query_normalized')}")
+        debug_lines.append(f"- filters: {search_res.get('filters')}")
+        debug_meta = search_res.get("debug") or {}
+        debug_lines.append(f"- providers_enabled: {debug_meta.get('providers_enabled_for_assist')}")
+        debug_lines.append(f"- providers_executed: {debug_meta.get('providers_executed')}")
+        debug_lines.append(f"- per_provider_counts: {debug_meta.get('per_provider_counts')}")
+        debug_lines.append(f"- signature: {signature}")
+        debug_lines.append(f"- cache_used: {search_res.get('cache_used', False)}")
+        debug_lines.append(f"- cache_key: {search_res.get('cache_key')}")
+        first_url = normalized_items[0].get("url") if normalized_items else None
+        first_title = normalized_items[0].get("title") if normalized_items else None
+        debug_lines.append(f"- sample_first_result_title: {first_title}")
+        debug_lines.append(f"- sample_first_result_url: {first_url}")
+
         report_md = "\n".join(
             [
                 f"## Market Scout Results ({len(normalized_items)} items, total {total})",
@@ -745,6 +770,9 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
                 *top_lines,
                 "",
                 "Delta detected" if has_delta else "No significant delta detected",
+                "",
+                "### Debug",
+                *debug_lines,
             ]
         )
 
@@ -773,6 +801,13 @@ def run_case_inline(db: Session, case: AssistCase, user) -> AssistCase:
             _compute_next_run(case, limits)
         else:
             case.next_run_at = None
+        logger.info(
+            "market.scout end case=%s total=%s signature=%s cache_used=%s",
+            case.id,
+            total,
+            signature,
+            search_res.get("cache_used", False),
+        )
         case.updated_at = datetime.utcnow()
         db.add(case)
         db.commit()
