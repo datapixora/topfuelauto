@@ -275,18 +275,159 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
 
 def _parse_list_page(html: str, source_key: str) -> list[dict]:
     """
-    Parse items from a list page HTML.
+    Parse items from a list page HTML using BeautifulSoup.
 
-    This is a placeholder parser that returns empty list.
-    Real implementation would use BeautifulSoup/lxml to extract items.
-
-    For STEP 5, actual parsing logic will be source-specific.
+    Returns list of dicts with structure:
+    {
+        "canonical_url": "https://...",  # Required: unique URL for this listing
+        "listing": {                      # Required: listing data fields
+            "title": "...",
+            "year": 2020,
+            "make": "Toyota",
+            "model": "Camry",
+            "price_amount": 15000.00,
+            "currency": "USD",
+            # ... other fields
+        },
+        "attributes": [                   # Optional: additional key-value data
+            {"key": "vin", "value_text": "..."},
+            {"key": "mileage", "value_num": 50000, "unit": "miles"},
+        ]
+    }
     """
-    # TODO: Implement source-specific parsers
-    # For now, return empty list (no items extracted)
+    from bs4 import BeautifulSoup
 
-    logger.warning(f"Using placeholder parser for {source_key} - no items will be extracted")
-    return []
+    try:
+        soup = BeautifulSoup(html, 'lxml')
+        items = []
+
+        # ============================================================================
+        # CUSTOMIZE THIS SECTION FOR YOUR SOURCE
+        # ============================================================================
+
+        # Step 1: Find all listing containers
+        # Common patterns:
+        # - soup.find_all('div', class_='listing-item')
+        # - soup.find_all('article', class_='vehicle-card')
+        # - soup.select('.results .item')
+
+        listing_elements = soup.find_all('div', class_='listing-item')  # ← CUSTOMIZE THIS
+
+        logger.info(f"Found {len(listing_elements)} listing elements on page")
+
+        for element in listing_elements:
+            try:
+                # Step 2: Extract the canonical URL (required)
+                # Common patterns:
+                # - element.find('a', class_='title')['href']
+                # - element.select_one('.vehicle-link')['href']
+                # - element.find('a')['href']
+
+                link_tag = element.find('a', class_='item-link')  # ← CUSTOMIZE THIS
+                if not link_tag or not link_tag.get('href'):
+                    continue
+
+                canonical_url = link_tag['href']
+                # Make URL absolute if needed
+                if canonical_url.startswith('/'):
+                    # Extract base domain from first occurrence
+                    canonical_url = f"https://www.example.com{canonical_url}"  # ← CUSTOMIZE DOMAIN
+
+                # Step 3: Extract listing fields
+                # Use helper methods like .find(), .select_one(), .get_text()
+
+                title = element.find('h3', class_='title')
+                title_text = title.get_text(strip=True) if title else None
+
+                price = element.find('span', class_='price')
+                price_text = price.get_text(strip=True) if price else None
+                price_amount = _extract_number(price_text) if price_text else None
+
+                year_tag = element.find('span', class_='year')
+                year = int(year_tag.get_text(strip=True)) if year_tag else None
+
+                make_tag = element.find('span', class_='make')
+                make = make_tag.get_text(strip=True) if make_tag else None
+
+                model_tag = element.find('span', class_='model')
+                model = model_tag.get_text(strip=True) if model_tag else None
+
+                # Step 4: Build listing data dict
+                listing_data = {
+                    "title": title_text,
+                    "year": year,
+                    "make": make,
+                    "model": model,
+                    "price_amount": price_amount,
+                    "currency": "USD",
+                    "status": "active",
+                }
+
+                # Step 5: Extract additional attributes (optional)
+                attributes = []
+
+                # Example: VIN
+                vin_tag = element.find('span', class_='vin')
+                if vin_tag:
+                    attributes.append({
+                        "key": "vin",
+                        "value_text": vin_tag.get_text(strip=True),
+                    })
+
+                # Example: Mileage
+                mileage_tag = element.find('span', class_='mileage')
+                if mileage_tag:
+                    mileage_num = _extract_number(mileage_tag.get_text(strip=True))
+                    if mileage_num:
+                        attributes.append({
+                            "key": "odometer",
+                            "value_num": mileage_num,
+                            "unit": "miles",
+                        })
+
+                # Step 6: Add to results
+                items.append({
+                    "canonical_url": canonical_url,
+                    "listing": listing_data,
+                    "attributes": attributes if attributes else None,
+                })
+
+            except Exception as e:
+                logger.warning(f"Failed to parse listing element: {e}")
+                continue
+
+        logger.info(f"Successfully parsed {len(items)} items from page")
+        return items
+
+    except Exception as e:
+        logger.error(f"Failed to parse HTML for {source_key}: {e}", exc_info=True)
+        return []
+
+
+def _extract_number(text: str) -> float | None:
+    """
+    Extract first number from text string.
+    Examples: "$15,000" → 15000.0, "50k miles" → 50000.0
+    """
+    if not text:
+        return None
+
+    import re
+    # Remove common currency symbols and commas
+    cleaned = re.sub(r'[$,€£¥]', '', text)
+
+    # Handle "k" suffix (thousands)
+    if 'k' in cleaned.lower():
+        match = re.search(r'([\d.]+)\s*k', cleaned.lower())
+        if match:
+            return float(match.group(1)) * 1000
+
+    # Extract first number (int or float)
+    match = re.search(r'[\d,]+\.?\d*', cleaned)
+    if match:
+        return float(match.group().replace(',', ''))
+
+    return None
 
 
 @celery_app.task(name="app.workers.data_engine.enqueue_due_sources")
