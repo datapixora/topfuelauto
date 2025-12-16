@@ -228,15 +228,19 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
                         )
                         items_staged += 1
 
-                        # Check auto-merge rules
+                        # Check auto-merge rules (auto-approve, still manual merge trigger)
                         should_merge, reason = service.should_auto_merge(db, source, staged)
+                        staged.auto_approved = should_merge
+                        db.add(staged)
+                        db.commit()
+
                         if should_merge:
-                            service.auto_merge_listing(db, staged)
-                            debug_info["auto_merged"] = debug_info.get("auto_merged", 0) + 1
-                            logger.debug(f"Auto-merged: {staged.canonical_url}")
+                            debug_info["auto_approved"] = debug_info.get("auto_approved", 0) + 1
+                            logger.debug(f"Auto-approved for merge: {staged.canonical_url}")
                         else:
-                            debug_info.setdefault("manual_review_reasons", {})[reason] = \
-                                debug_info.get("manual_review_reasons", {}).get(reason, 0) + 1
+                            reason_key = reason or "manual_review"
+                            debug_info.setdefault("manual_review_reasons", {})[reason_key] = \
+                                debug_info.get("manual_review_reasons", {}).get(reason_key, 0) + 1
                             logger.debug(f"Manual review required: {reason}")
 
                     except Exception as e:
@@ -366,6 +370,7 @@ def _parse_list_page(html: str, source_key: str) -> list[dict]:
                     "model": model,
                     "price_amount": price_amount,
                     "currency": "USD",
+                    "confidence_score": 1.0,
                     "status": "active",
                 }
 

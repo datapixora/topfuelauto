@@ -25,6 +25,7 @@ class MergedListing(Base):
     # Price
     price_amount = Column(Numeric(12, 2), nullable=True)
     currency = Column(String(10), nullable=True, default="USD")
+    confidence_score = Column(Numeric(5, 3), nullable=True)
 
     # Location and metadata
     odometer_value = Column(Integer, nullable=True)

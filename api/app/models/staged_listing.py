@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, Numeric, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, DateTime, Text, Numeric, ForeignKey, UniqueConstraint, Index, Boolean
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -26,6 +26,7 @@ class StagedListing(Base):
     # Price
     price_amount = Column(Numeric(12, 2), nullable=True)
     currency = Column(String(10), nullable=True, default="USD")
+    confidence_score = Column(Numeric(5, 3), nullable=True)
 
     # Location and metadata
     odometer_value = Column(Integer, nullable=True)
@@ -38,6 +39,7 @@ class StagedListing(Base):
 
     # Status: active, ended, unknown
     status = Column(String(20), nullable=False, default="unknown")
+    auto_approved = Column(Boolean, nullable=False, default=False)
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

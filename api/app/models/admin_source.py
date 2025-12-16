@@ -31,6 +31,7 @@ class AdminSource(Base):
 
     # Configuration (selectors, recipes, allowlist paths)
     settings_json = Column(JSONB, nullable=True)
+    merge_rules = Column(JSONB, nullable=True)
 
     # Failure tracking
     failure_count = Column(Integer, nullable=False, default=0)

@@ -27,6 +27,9 @@ export default function NewSourcePage() {
     retry_count: 3,
     is_enabled: true,
     auto_merge_enabled: false,
+    require_year_make_model: true,
+    require_price_or_url: true,
+    min_confidence_score: "" as number | "" | null,
     // Proxy settings
     proxy_enabled: false,
     proxy_host: "",
@@ -45,11 +48,6 @@ export default function NewSourcePage() {
       // Build settings_json with proxy config and auto-merge
       const settings_json: any = {};
 
-      // Auto-merge setting
-      if (formData.auto_merge_enabled) {
-        settings_json.auto_merge_enabled = true;
-      }
-
       // Proxy config
       if (formData.proxy_enabled && formData.proxy_host && formData.proxy_port) {
         settings_json.proxy_enabled = true;
@@ -62,6 +60,16 @@ export default function NewSourcePage() {
           settings_json.proxy_password = formData.proxy_password;
         }
       }
+
+      const merge_rules = {
+        auto_merge_enabled: formData.auto_merge_enabled,
+        require_year_make_model: formData.require_year_make_model,
+        require_price_or_url: formData.require_price_or_url,
+        min_confidence_score:
+          formData.min_confidence_score === "" || formData.min_confidence_score === null
+            ? null
+            : Number(formData.min_confidence_score),
+      };
 
       const payload = {
         key: formData.key,
@@ -77,6 +85,7 @@ export default function NewSourcePage() {
         retry_count: formData.retry_count,
         is_enabled: formData.is_enabled,
         settings_json: Object.keys(settings_json).length > 0 ? settings_json : null,
+        merge_rules,
       };
 
       await createDataSource(payload);
@@ -222,7 +231,14 @@ export default function NewSourcePage() {
               />
               <label htmlFor="is_enabled" className="text-sm">Enable source immediately</label>
             </div>
+          </CardContent>
+        </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>Merge Rules (Auto-Approval)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -232,8 +248,62 @@ export default function NewSourcePage() {
                 className="w-4 h-4"
               />
               <label htmlFor="auto_merge_enabled" className="text-sm">
-                Enable auto-merge (skip manual review for valid listings)
+                Enable auto-approval (keeps items in staging but marks them ready to merge)
               </label>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="require_year_make_model"
+                  checked={formData.require_year_make_model}
+                  onChange={(e) => setFormData({ ...formData, require_year_make_model: e.target.checked })}
+                  className="w-4 h-4"
+                  disabled={!formData.auto_merge_enabled}
+                />
+                <label htmlFor="require_year_make_model" className="text-sm">
+                  Require year + make + model
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="require_price_or_url"
+                  checked={formData.require_price_or_url}
+                  onChange={(e) => setFormData({ ...formData, require_price_or_url: e.target.checked })}
+                  className="w-4 h-4"
+                  disabled={!formData.auto_merge_enabled}
+                />
+                <label htmlFor="require_price_or_url" className="text-sm">
+                  Require price or URL
+                </label>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Min confidence (0-1, optional)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+                  value={formData.min_confidence_score ?? ""}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      min_confidence_score: e.target.value === "" ? "" : Number(e.target.value),
+                    })
+                  }
+                  disabled={!formData.auto_merge_enabled}
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Leave blank to ignore confidence score.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

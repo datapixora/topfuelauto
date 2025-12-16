@@ -212,6 +212,13 @@ export type NotificationItem = {
 // Data Engine Types
 // ============================================================================
 
+export type MergeRules = {
+  auto_merge_enabled: boolean;
+  require_year_make_model: boolean;
+  require_price_or_url: boolean;
+  min_confidence_score?: number | null;
+};
+
 export type DataSource = {
   id: number;
   key: string;
@@ -227,6 +234,7 @@ export type DataSource = {
   timeout_seconds: number;
   retry_count: number;
   settings_json?: Record<string, any> | null;
+  merge_rules?: MergeRules | null;
   failure_count: number;
   disabled_reason?: string | null;
   last_run_at?: string | null;
@@ -273,12 +281,14 @@ export type StagedListing = {
   model?: string | null;
   price_amount?: number | null;
   currency: string;
+  confidence_score?: number | null;
   odometer_value?: number | null;
   location?: string | null;
   listed_at?: string | null;
   sale_datetime?: string | null;
   fetched_at: string;
   status: "active" | "ended" | "unknown";
+  auto_approved: boolean;
   created_at: string;
   updated_at: string;
   attributes: StagedListingAttribute[];

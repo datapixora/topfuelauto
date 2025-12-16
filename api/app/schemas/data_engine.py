@@ -4,6 +4,17 @@ from pydantic import BaseModel, Field
 
 
 # ============================================================================
+# Merge Rules
+# ============================================================================
+
+class MergeRules(BaseModel):
+    auto_merge_enabled: bool = False
+    require_year_make_model: bool = True
+    require_price_or_url: bool = True
+    min_confidence_score: Optional[float] = None
+
+
+# ============================================================================
 # Admin Source Schemas
 # ============================================================================
 
@@ -21,6 +32,7 @@ class AdminSourceBase(BaseModel):
     timeout_seconds: int = Field(default=10, ge=1)
     retry_count: int = Field(default=1, ge=0)
     settings_json: Optional[dict] = None
+    merge_rules: Optional[MergeRules] = None
 
 
 class AdminSourceCreate(AdminSourceBase):
@@ -40,6 +52,7 @@ class AdminSourceUpdate(BaseModel):
     timeout_seconds: Optional[int] = Field(None, ge=1)
     retry_count: Optional[int] = Field(None, ge=0)
     settings_json: Optional[dict] = None
+    merge_rules: Optional[MergeRules] = None
 
 
 class AdminSourceOut(AdminSourceBase):
@@ -135,11 +148,13 @@ class StagedListingBase(BaseModel):
     model: Optional[str] = Field(None, max_length=100)
     price_amount: Optional[float] = None
     currency: str = Field(default="USD", max_length=10)
+    confidence_score: Optional[float] = None
     odometer_value: Optional[int] = None
     location: Optional[str] = Field(None, max_length=255)
     listed_at: Optional[datetime] = None
     sale_datetime: Optional[datetime] = None
     status: str = Field(default="unknown", pattern="^(active|ended|unknown)$")
+    auto_approved: bool = False
 
 
 class StagedListingCreate(StagedListingBase):
@@ -153,6 +168,8 @@ class StagedListingOut(StagedListingBase):
     fetched_at: datetime
     created_at: datetime
     updated_at: datetime
+    auto_approved: bool
+    confidence_score: Optional[float] = None
     attributes: List[StagedListingAttributeOut] = []
 
     class Config:
@@ -198,6 +215,7 @@ class MergedListingBase(BaseModel):
     model: Optional[str] = Field(None, max_length=100)
     price_amount: Optional[float] = None
     currency: str = Field(default="USD", max_length=10)
+    confidence_score: Optional[float] = None
     odometer_value: Optional[int] = None
     location: Optional[str] = Field(None, max_length=255)
     listed_at: Optional[datetime] = None

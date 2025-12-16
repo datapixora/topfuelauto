@@ -67,47 +67,94 @@ def decrypt_proxy_settings(settings_json: Optional[dict]) -> Optional[dict]:
 # Auto-Merge Rules
 # ============================================================================
 
+DEFAULT_MERGE_RULES = {
+    "auto_merge_enabled": False,
+    "require_year_make_model": True,
+    "require_price_or_url": True,
+    "min_confidence_score": None,
+}
+
+
+def resolve_merge_rules(source: Any) -> dict:
+    """Return merge rules with defaults, honoring legacy settings_json.auto_merge_enabled."""
+    rules = DEFAULT_MERGE_RULES.copy()
+
+    # Prefer explicit merge_rules column
+    if getattr(source, "merge_rules", None):
+        try:
+            rules.update({k: v for k, v in (source.merge_rules or {}).items() if v is not None})
+        except Exception:
+            logger.warning("Failed to parse merge_rules for source %s", getattr(source, "key", "?"))
+
+    # Backwards compatibility: settings_json.auto_merge_enabled
+    settings = getattr(source, "settings_json", None) or {}
+    if settings.get("auto_merge_enabled"):
+        rules["auto_merge_enabled"] = True
+
+    return rules
+
+
+def normalize_merge_rules(incoming: Optional[dict], settings_json: Optional[dict]) -> dict:
+    """
+    Combine defaults with incoming merge_rules payload and legacy auto_merge_enabled flag.
+    """
+    rules = DEFAULT_MERGE_RULES.copy()
+    if incoming:
+        rules.update({k: v for k, v in incoming.items() if v is not None})
+    elif settings_json and settings_json.get("auto_merge_enabled"):
+        rules["auto_merge_enabled"] = True
+    return rules
+
+
 def should_auto_merge(db: Session, source: Any, staged_listing: Any) -> tuple[bool, Optional[str]]:
     """
-    Check if a staged listing should be auto-merged based on simple rules.
+    Decide if a staged listing meets auto-approval criteria.
 
-    Returns: (should_merge: bool, reason: Optional[str])
-    - (True, None) = auto-merge approved
-    - (False, reason) = requires manual review
-
-    Rules:
-    1. Source must have auto_merge_enabled=True in settings_json
-    2. Required fields: title, year (or make/model)
-    3. No duplicate: canonical_url not in merged_listings
-    4. Quality filters: price > 0 (if present), year in range 1900-2030
+    Returns: (should_auto_approve: bool, reason_if_rejected)
     """
-    settings = source.settings_json or {}
+    rules = resolve_merge_rules(source)
 
-    # Rule 1: Check if source has auto-merge enabled
-    if not settings.get("auto_merge_enabled"):
-        return (False, "Auto-merge not enabled for source")
+    if not rules.get("auto_merge_enabled"):
+        return False, "Auto-merge disabled"
 
-    # Rule 2: Required fields validation
-    if not staged_listing.title and not (staged_listing.make and staged_listing.model):
-        return (False, "Missing required fields (title or make/model)")
+    # Required fields: year + make + model
+    if rules.get("require_year_make_model", True):
+        if not (staged_listing.year and staged_listing.make and staged_listing.model):
+            return False, "Missing year/make/model"
 
-    # Rule 3: Duplicate check - canonical_url must not exist in merged_listings
+    # Require price or canonical URL (url should always be present but guard empties)
+    if rules.get("require_price_or_url", True):
+        has_price = staged_listing.price_amount is not None
+        has_url = bool(getattr(staged_listing, "canonical_url", None))
+        if not (has_price or has_url):
+            return False, "Missing price and URL"
+
+    # Confidence threshold
+    min_conf = rules.get("min_confidence_score")
+    if min_conf is not None:
+        score = staged_listing.confidence_score
+        if score is None or float(score) < float(min_conf):
+            return False, f"Confidence {score or 0} below {min_conf}"
+
+    # Duplicate check
     from app.models.merged_listing import MergedListing
-    existing = db.query(MergedListing).filter(
-        MergedListing.canonical_url == staged_listing.canonical_url
-    ).first()
+
+    existing = (
+        db.query(MergedListing)
+        .filter(MergedListing.canonical_url == staged_listing.canonical_url)
+        .first()
+    )
     if existing:
-        return (False, f"Duplicate: already merged as #{existing.id}")
+        return False, f"Duplicate merged #{existing.id}"
 
-    # Rule 4: Quality filters
+    # Basic quality sanity
     if staged_listing.price_amount is not None and staged_listing.price_amount <= 0:
-        return (False, "Invalid price (must be > 0)")
+        return False, "Invalid price"
 
-    if staged_listing.year is not None and (staged_listing.year < 1900 or staged_listing.year > 2030):
-        return (False, f"Invalid year ({staged_listing.year} out of range)")
+    if staged_listing.year is not None and (staged_listing.year < 1900 or staged_listing.year > 2035):
+        return False, f"Year out of range ({staged_listing.year})"
 
-    # All rules passed
-    return (True, None)
+    return True, None
 
 
 def auto_merge_listing(db: Session, staged_listing: Any) -> Any:
@@ -123,6 +170,7 @@ def auto_merge_listing(db: Session, staged_listing: Any) -> Any:
         "model": staged_listing.model,
         "price_amount": staged_listing.price_amount,
         "currency": staged_listing.currency,
+        "confidence_score": staged_listing.confidence_score,
         "odometer_value": staged_listing.odometer_value,
         "location": staged_listing.location,
         "listed_at": staged_listing.listed_at,
@@ -164,11 +212,17 @@ def auto_merge_listing(db: Session, staged_listing: Any) -> Any:
 
 def create_source(db: Session, source: schemas.AdminSourceCreate) -> AdminSource:
     """Create a new admin source (encrypts proxy credentials in settings_json)."""
-    source_data = source.dict()
+    source_data = source.dict(exclude_unset=True)
 
     # Encrypt proxy credentials if present in settings_json
     if source_data.get("settings_json"):
         source_data["settings_json"] = encrypt_proxy_settings(source_data["settings_json"])
+
+    # Normalize merge rules (defaults + legacy auto_merge flag)
+    source_data["merge_rules"] = normalize_merge_rules(
+        source_data.pop("merge_rules", None),
+        source_data.get("settings_json"),
+    )
 
     db_source = AdminSource(**source_data)
     db.add(db_source)
@@ -206,6 +260,13 @@ def update_source(db: Session, source_id: int, source_update: schemas.AdminSourc
     # Encrypt proxy credentials if settings_json is being updated
     if "settings_json" in update_data and update_data["settings_json"]:
         update_data["settings_json"] = encrypt_proxy_settings(update_data["settings_json"])
+
+    # Merge rules normalization (respect legacy toggle if merge_rules omitted)
+    if "merge_rules" in update_data or "settings_json" in update_data:
+        incoming_rules = update_data.pop("merge_rules", None) if "merge_rules" in update_data else None
+        # Use current settings_json if not being updated
+        settings_json = update_data.get("settings_json", db_source.settings_json)
+        update_data["merge_rules"] = normalize_merge_rules(incoming_rules, settings_json)
 
     for field, value in update_data.items():
         setattr(db_source, field, value)
@@ -352,6 +413,7 @@ def upsert_staged_listing(
                 setattr(existing, field, value)
         existing.updated_at = datetime.utcnow()
         existing.run_id = run_id  # Update to latest run
+        existing.auto_approved = False  # re-evaluate with new data each run
         db_listing = existing
     else:
         # Create new

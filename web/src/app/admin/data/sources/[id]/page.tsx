@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { Button } from "../../../../../components/ui/button";
-import { getDataSource, listSourceRuns, toggleDataSource, deleteDataSource, runDataSource } from "../../../../../lib/api";
+import { getDataSource, listSourceRuns, toggleDataSource, deleteDataSource, runDataSource, updateDataSource } from "../../../../../lib/api";
 import { DataSource, DataRun } from "../../../../../lib/types";
 
 export default function SourceDetailPage() {
@@ -16,6 +16,13 @@ export default function SourceDetailPage() {
   const [runs, setRuns] = useState<DataRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savingRules, setSavingRules] = useState(false);
+  const [mergeRules, setMergeRules] = useState({
+    auto_merge_enabled: false,
+    require_year_make_model: true,
+    require_price_or_url: true,
+    min_confidence_score: "" as number | "" | null,
+  });
 
   const loadData = async () => {
     setLoading(true);
@@ -27,6 +34,13 @@ export default function SourceDetailPage() {
       ]);
       setSource(sourceData);
       setRuns(runsData);
+      const rules = sourceData.merge_rules || {};
+      setMergeRules({
+        auto_merge_enabled: rules.auto_merge_enabled ?? false,
+        require_year_make_model: rules.require_year_make_model ?? true,
+        require_price_or_url: rules.require_price_or_url ?? true,
+        min_confidence_score: rules.min_confidence_score ?? "",
+      });
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -73,6 +87,28 @@ export default function SourceDetailPage() {
       setTimeout(() => loadData(), 1000);
     } catch (e: any) {
       setError(e.message);
+    }
+  };
+
+  const handleSaveRules = async () => {
+    setSavingRules(true);
+    try {
+      await updateDataSource(sourceId, {
+        merge_rules: {
+          auto_merge_enabled: mergeRules.auto_merge_enabled,
+          require_year_make_model: mergeRules.require_year_make_model,
+          require_price_or_url: mergeRules.require_price_or_url,
+          min_confidence_score:
+            mergeRules.min_confidence_score === "" || mergeRules.min_confidence_score === null
+              ? null
+              : Number(mergeRules.min_confidence_score),
+        },
+      });
+      await loadData();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSavingRules(false);
     }
   };
 
@@ -229,6 +265,74 @@ export default function SourceDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex items-center justify-between">
+          <CardTitle>Merge Rules (Auto-Approval)</CardTitle>
+          <Button variant="ghost" onClick={handleSaveRules} disabled={savingRules}>
+            {savingRules ? "Saving..." : "Save Rules"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={mergeRules.auto_merge_enabled}
+              onChange={(e) => setMergeRules({ ...mergeRules, auto_merge_enabled: e.target.checked })}
+              className="w-4 h-4"
+            />
+            <span>Enable auto-approval</span>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={mergeRules.require_year_make_model}
+                onChange={(e) => setMergeRules({ ...mergeRules, require_year_make_model: e.target.checked })}
+                className="w-4 h-4"
+                disabled={!mergeRules.auto_merge_enabled}
+              />
+              <span>Require year + make + model</span>
+            </label>
+
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={mergeRules.require_price_or_url}
+                onChange={(e) => setMergeRules({ ...mergeRules, require_price_or_url: e.target.checked })}
+                className="w-4 h-4"
+                disabled={!mergeRules.auto_merge_enabled}
+              />
+              <span>Require price or URL</span>
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1">
+                Min confidence (0-1)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                value={mergeRules.min_confidence_score ?? ""}
+                onChange={(e) =>
+                  setMergeRules({
+                    ...mergeRules,
+                    min_confidence_score: e.target.value === "" ? "" : Number(e.target.value),
+                  })
+                }
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+                disabled={!mergeRules.auto_merge_enabled}
+              />
+              <p className="text-xs text-slate-500 mt-1">Leave blank to ignore confidence.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {source.settings_json && Object.keys(source.settings_json).length > 0 && (
         <Card>

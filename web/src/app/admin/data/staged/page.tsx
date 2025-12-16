@@ -110,10 +110,29 @@ export default function StagedListingsPage() {
     }
   };
 
+  const handleApproveAutoApproved = async () => {
+    const ids = listings.filter((l) => l.auto_approved).map((l) => l.id);
+    if (ids.length === 0) return;
+    if (!confirm(`Approve ${ids.length} auto-approved listings? They will be merged to the main catalog.`)) return;
+
+    setActionLoading(true);
+    try {
+      await bulkApproveStagedListings(ids);
+      await loadListings();
+      setSelectedIds(new Set());
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const formatDate = (dateStr?: string | null) => {
     if (!dateStr) return "N/A";
     return new Date(dateStr).toLocaleString();
   };
+
+  const autoApprovedCount = listings.filter((l) => l.auto_approved).length;
 
   return (
     <div className="space-y-4">
@@ -122,26 +141,38 @@ export default function StagedListingsPage() {
           <h1 className="text-2xl font-semibold">Staging Queue</h1>
           <p className="text-sm text-slate-400">Review and approve scraped listings</p>
         </div>
-        {selectedIds.size > 0 && (
-          <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {autoApprovedCount > 0 && (
             <Button
               variant="ghost"
-              onClick={handleBulkApprove}
+              onClick={handleApproveAutoApproved}
               disabled={actionLoading}
-              className="text-green-400 hover:text-green-300"
+              className="text-emerald-400 hover:text-emerald-300 text-xs"
             >
-              Approve {selectedIds.size} Selected
+              Approve {autoApprovedCount} Auto-approved
             </Button>
-            <Button
-              variant="ghost"
-              onClick={handleBulkReject}
-              disabled={actionLoading}
-              className="text-red-400 hover:text-red-300"
-            >
-              Reject {selectedIds.size} Selected
-            </Button>
-          </div>
-        )}
+          )}
+          {selectedIds.size > 0 && (
+            <>
+              <Button
+                variant="ghost"
+                onClick={handleBulkApprove}
+                disabled={actionLoading}
+                className="text-green-400 hover:text-green-300"
+              >
+                Approve {selectedIds.size} Selected
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleBulkReject}
+                disabled={actionLoading}
+                className="text-red-400 hover:text-red-300"
+              >
+                Reject {selectedIds.size} Selected
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -185,7 +216,14 @@ export default function StagedListingsPage() {
                       className="w-4 h-4 mt-1"
                     />
                     <div className="flex-1">
-                      <CardTitle className="text-lg">{listing.title || "Untitled"}</CardTitle>
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="text-lg">{listing.title || "Untitled"}</CardTitle>
+                        {listing.auto_approved && (
+                          <span className="px-2 py-1 rounded bg-emerald-900/40 text-emerald-300 text-[11px] font-medium">
+                            Auto-approved
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-500 font-mono mt-1">
                         #{listing.id} • {listing.source_key}
                         {listing.source_listing_id && ` • Source ID: ${listing.source_listing_id}`}
@@ -230,6 +268,12 @@ export default function StagedListingsPage() {
                         <span className="font-medium">
                           {listing.currency} {listing.price_amount.toLocaleString()}
                         </span>
+                      </div>
+                    )}
+                    {listing.confidence_score !== null && listing.confidence_score !== undefined && (
+                      <div>
+                        <span className="text-slate-400">Confidence:</span>{" "}
+                        <span className="font-medium">{listing.confidence_score.toFixed(2)}</span>
                       </div>
                     )}
                     {listing.odometer_value && (
