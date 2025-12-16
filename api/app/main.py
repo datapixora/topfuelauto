@@ -6,6 +6,7 @@ from app.routers import auth, listings, search, vin, broker, billing, assist, al
 from app.routers.health import get_health_payload, router as health_router
 from app.routers.admin import router as admin_router
 from app.routers.admin_plans import router as admin_plans_router
+from app.routers.admin_data import router as admin_data_router
 
 settings = get_settings()
 
@@ -39,6 +40,7 @@ app.include_router(broker.router)
 app.include_router(health_router)
 app.include_router(admin_router)
 app.include_router(admin_plans_router)
+app.include_router(admin_data_router)
 app.include_router(billing.router)
 app.include_router(assist.router)
 app.include_router(alerts.router)
