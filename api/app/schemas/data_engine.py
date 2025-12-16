@@ -1,6 +1,27 @@
 from datetime import datetime
 from typing import Optional, List, Any
 from pydantic import BaseModel, Field
+from app.models.admin_source import ProxyMode
+
+
+# ============================================================================
+# Proxy Schemas
+# ============================================================================
+
+class ProxyPoolSummary(BaseModel):
+    enabled_count: int
+    weight_sum: int
+    last_exit_ip: Optional[str]
+
+
+class ProxyOption(BaseModel):
+    id: int
+    name: str
+    host: str
+    port: int
+    scheme: str
+    last_check_status: Optional[str]
+    last_exit_ip: Optional[str]
 
 
 # ============================================================================
@@ -31,6 +52,8 @@ class AdminSourceBase(BaseModel):
     concurrency: int = Field(default=2, ge=1)
     timeout_seconds: int = Field(default=10, ge=1)
     retry_count: int = Field(default=1, ge=0)
+    proxy_mode: ProxyMode = ProxyMode.NONE
+    proxy_id: Optional[int] = None
     settings_json: Optional[dict] = None
     merge_rules: Optional[MergeRules] = None
 
@@ -51,6 +74,8 @@ class AdminSourceUpdate(BaseModel):
     concurrency: Optional[int] = Field(None, ge=1)
     timeout_seconds: Optional[int] = Field(None, ge=1)
     retry_count: Optional[int] = Field(None, ge=0)
+    proxy_mode: Optional[ProxyMode] = None
+    proxy_id: Optional[int] = None
     settings_json: Optional[dict] = None
     merge_rules: Optional[MergeRules] = None
 
@@ -66,6 +91,7 @@ class AdminSourceOut(AdminSourceBase):
     next_run_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    proxy_pool_summary: Optional[ProxyPoolSummary] = None
 
     class Config:
         orm_mode = True
