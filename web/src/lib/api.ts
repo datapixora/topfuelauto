@@ -456,3 +456,19 @@ export async function listStagedListings() {
 export async function getStagedListing(listingId: number) {
   return apiGet<any>(`/admin/data/staged/${listingId}`);
 }
+
+export async function approveStagedListing(listingId: number) {
+  return apiPost(`/admin/data/staged/${listingId}/approve`, {});
+}
+
+export async function rejectStagedListing(listingId: number) {
+  return apiPost(`/admin/data/staged/${listingId}/reject`, {});
+}
+
+export async function bulkApproveStagedListings(listingIds: number[]) {
+  return apiPost("/admin/data/staged/bulk-approve", { listing_ids: listingIds });
+}
+
+export async function bulkRejectStagedListings(listingIds: number[]) {
+  return apiPost("/admin/data/staged/bulk-reject", { listing_ids: listingIds });
+}

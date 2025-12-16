@@ -220,6 +220,209 @@ def list_all_staged_listings(
     return service.list_staged_listings(db, skip=skip, limit=limit)
 
 
+@router.post("/staged/{listing_id}/approve")
+def approve_staged_listing(
+    listing_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Approve a staged listing - merge it to merged_listings table.
+    Copies listing data and attributes to merged_listings.
+    """
+    db_staged = service.get_staged_listing(db, listing_id)
+    if not db_staged:
+        raise HTTPException(status_code=404, detail="Staged listing not found")
+
+    # Prepare listing data for merge
+    listing_data = {
+        "title": db_staged.title,
+        "year": db_staged.year,
+        "make": db_staged.make,
+        "model": db_staged.model,
+        "price_amount": db_staged.price_amount,
+        "currency": db_staged.currency,
+        "odometer_value": db_staged.odometer_value,
+        "location": db_staged.location,
+        "listed_at": db_staged.listed_at,
+        "sale_datetime": db_staged.sale_datetime,
+        "fetched_at": db_staged.fetched_at,
+        "status": db_staged.status,
+    }
+
+    # Prepare attributes
+    attributes = [
+        {
+            "key": attr.key,
+            "value_text": attr.value_text,
+            "value_num": attr.value_num,
+            "value_bool": attr.value_bool,
+            "unit": attr.unit,
+        }
+        for attr in db_staged.attributes
+    ]
+
+    # Upsert to merged_listings
+    merged = service.upsert_merged_listing(
+        db,
+        source_key=db_staged.source_key,
+        canonical_url=db_staged.canonical_url,
+        listing_data=listing_data,
+        attributes=attributes,
+    )
+
+    # Delete staged listing after merge
+    db.delete(db_staged)
+    db.commit()
+
+    return {
+        "success": True,
+        "merged_listing_id": merged.id,
+        "message": "Listing approved and merged"
+    }
+
+
+@router.post("/staged/{listing_id}/reject")
+def reject_staged_listing(
+    listing_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Reject a staged listing - delete it without merging.
+    """
+    db_staged = service.get_staged_listing(db, listing_id)
+    if not db_staged:
+        raise HTTPException(status_code=404, detail="Staged listing not found")
+
+    db.delete(db_staged)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Listing rejected and deleted"
+    }
+
+
+class BulkActionRequest(BaseModel):
+    listing_ids: List[int]
+
+
+@router.post("/staged/bulk-approve")
+def bulk_approve_staged_listings(
+    request: BulkActionRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Bulk approve multiple staged listings.
+    Merges all to merged_listings and deletes from staged.
+    """
+    approved = 0
+    failed = 0
+    errors = []
+
+    for listing_id in request.listing_ids:
+        try:
+            db_staged = service.get_staged_listing(db, listing_id)
+            if not db_staged:
+                failed += 1
+                errors.append(f"Listing {listing_id} not found")
+                continue
+
+            # Prepare and merge
+            listing_data = {
+                "title": db_staged.title,
+                "year": db_staged.year,
+                "make": db_staged.make,
+                "model": db_staged.model,
+                "price_amount": db_staged.price_amount,
+                "currency": db_staged.currency,
+                "odometer_value": db_staged.odometer_value,
+                "location": db_staged.location,
+                "listed_at": db_staged.listed_at,
+                "sale_datetime": db_staged.sale_datetime,
+                "fetched_at": db_staged.fetched_at,
+                "status": db_staged.status,
+            }
+
+            attributes = [
+                {
+                    "key": attr.key,
+                    "value_text": attr.value_text,
+                    "value_num": attr.value_num,
+                    "value_bool": attr.value_bool,
+                    "unit": attr.unit,
+                }
+                for attr in db_staged.attributes
+            ]
+
+            service.upsert_merged_listing(
+                db,
+                source_key=db_staged.source_key,
+                canonical_url=db_staged.canonical_url,
+                listing_data=listing_data,
+                attributes=attributes,
+            )
+
+            db.delete(db_staged)
+            approved += 1
+
+        except Exception as e:
+            failed += 1
+            errors.append(f"Listing {listing_id}: {str(e)}")
+            logger.error(f"Failed to approve listing {listing_id}: {e}")
+
+    db.commit()
+
+    return {
+        "success": True,
+        "approved": approved,
+        "failed": failed,
+        "errors": errors if errors else None
+    }
+
+
+@router.post("/staged/bulk-reject")
+def bulk_reject_staged_listings(
+    request: BulkActionRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Bulk reject multiple staged listings.
+    Deletes all from staged without merging.
+    """
+    rejected = 0
+    failed = 0
+    errors = []
+
+    for listing_id in request.listing_ids:
+        try:
+            db_staged = service.get_staged_listing(db, listing_id)
+            if not db_staged:
+                failed += 1
+                errors.append(f"Listing {listing_id} not found")
+                continue
+
+            db.delete(db_staged)
+            rejected += 1
+
+        except Exception as e:
+            failed += 1
+            errors.append(f"Listing {listing_id}: {str(e)}")
+            logger.error(f"Failed to reject listing {listing_id}: {e}")
+
+    db.commit()
+
+    return {
+        "success": True,
+        "rejected": rejected,
+        "failed": failed,
+        "errors": errors if errors else None
+    }
+
+
 # ============================================================================
 # Proxy Testing Endpoint
 # ============================================================================
