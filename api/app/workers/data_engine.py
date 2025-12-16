@@ -19,6 +19,8 @@ from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+USE_PROXY_POOL = os.getenv("DATA_ENGINE_USE_PROXY_POOL", "0") == "1"
+
 
 class BlockedResponseError(Exception):
     """Raised when a page clearly indicates bot-block/Incapsula/Imperva."""
@@ -126,7 +128,7 @@ def run_source_scrape(source_id: int) -> dict:
 
         logger.info(f"Starting scrape run for source: {source.key}")
 
-        proxy_for_run = proxy_service.select_proxy_for_run(db)
+        proxy_for_run = proxy_service.select_proxy_for_run(db) if USE_PROXY_POOL else None
         proxy_id = proxy_for_run.id if proxy_for_run else None
 
         # Create run record
