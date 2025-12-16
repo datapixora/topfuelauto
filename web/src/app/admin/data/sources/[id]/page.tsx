@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { Button } from "../../../../../components/ui/button";
-import { getDataSource, listSourceRuns, toggleDataSource, deleteDataSource, runDataSource, updateDataSource } from "../../../../../lib/api";
-import { DataSource, DataRun } from "../../../../../lib/types";
+import { getDataSource, listSourceRuns, toggleDataSource, deleteDataSource, runDataSource, updateDataSource, listProxies } from "../../../../../lib/api";
+import { DataSource, DataRun, ProxyEndpoint } from "../../../../../lib/types";
 
 export default function SourceDetailPage() {
   const router = useRouter();
@@ -14,6 +14,7 @@ export default function SourceDetailPage() {
 
   const [source, setSource] = useState<DataSource | null>(null);
   const [runs, setRuns] = useState<DataRun[]>([]);
+  const [proxies, setProxies] = useState<ProxyEndpoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingRules, setSavingRules] = useState(false);
@@ -28,12 +29,14 @@ export default function SourceDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [sourceData, runsData] = await Promise.all([
+      const [sourceData, runsData, proxyData] = await Promise.all([
         getDataSource(sourceId),
         listSourceRuns(sourceId),
+        listProxies(),
       ]);
       setSource(sourceData);
       setRuns(runsData);
+      setProxies(proxyData || []);
       const rules = sourceData.merge_rules || {};
       setMergeRules({
         auto_merge_enabled: rules.auto_merge_enabled ?? false,
@@ -135,6 +138,15 @@ export default function SourceDetailPage() {
         return "text-slate-400";
     }
   };
+
+  const proxyPool = (() => {
+    const enabled = proxies.filter((p) => p.is_enabled);
+    return {
+      count: enabled.length,
+      weight: enabled.reduce((acc, p) => acc + (p.weight || 0), 0),
+      lastExit: enabled.find((p) => p.last_exit_ip)?.last_exit_ip,
+    };
+  })();
 
   if (loading) {
     return <div className="text-slate-400">Loading source details...</div>;
@@ -280,6 +292,21 @@ export default function SourceDetailPage() {
             <div className="flex justify-between">
               <span className="text-slate-400">Updated:</span>
               <span className="font-medium text-xs">{formatDate(source.updated_at)}</span>
+            </div>
+            <div className="pt-2 border-t border-slate-800 mt-2">
+              <div className="text-xs text-slate-400 mb-1">Proxy Pool</div>
+              <div className="text-sm">
+                {proxyPool.count > 0 ? (
+                  <>
+                    {proxyPool.count} enabled (weight {proxyPool.weight})
+                    {proxyPool.lastExit && (
+                      <span className="text-slate-500 text-xs"> • last exit {proxyPool.lastExit}</span>
+                    )}
+                  </>
+                ) : (
+                  "No proxies configured"
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

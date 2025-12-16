@@ -166,6 +166,13 @@ export default function RunDetailPage() {
               <span className="text-slate-400">Created:</span>
               <span className="font-medium text-xs">{formatDate(run.created_at)}</span>
             </div>
+            <div className="pt-2 border-t border-slate-800 mt-2 text-xs">
+              <div className="text-slate-400">Proxy</div>
+              <div className="font-mono text-slate-200">
+                {run.proxy_id ? `#${run.proxy_id}` : "None"} {run.proxy_exit_ip && ` • exit ${run.proxy_exit_ip}`}
+              </div>
+              {run.proxy_error && <div className="text-red-300">Error: {run.proxy_error}</div>}
+            </div>
           </CardContent>
         </Card>
       </div>

@@ -78,6 +78,7 @@ class AdminSourceOut(AdminSourceBase):
 class AdminRunBase(BaseModel):
     source_id: int
     status: str = Field(default="queued", pattern="^(queued|running|succeeded|failed|paused|blocked|proxy_failed)$")
+    proxy_id: Optional[int] = None
 
 
 class AdminRunCreate(AdminRunBase):
@@ -94,6 +95,9 @@ class AdminRunUpdate(BaseModel):
     items_staged: Optional[int] = None
     error_summary: Optional[str] = None
     debug_json: Optional[dict] = None
+    proxy_id: Optional[int] = None
+    proxy_exit_ip: Optional[str] = None
+    proxy_error: Optional[str] = None
 
 
 class AdminRunOut(AdminRunBase):
@@ -106,6 +110,9 @@ class AdminRunOut(AdminRunBase):
     items_staged: int
     error_summary: Optional[str] = None
     debug_json: Optional[dict] = None
+    proxy_id: Optional[int] = None
+    proxy_exit_ip: Optional[str] = None
+    proxy_error: Optional[str] = None
     created_at: datetime
 
     class Config:

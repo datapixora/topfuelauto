@@ -30,6 +30,11 @@ class AdminRun(Base):
     error_summary = Column(Text, nullable=True)
     debug_json = Column(JSONB, nullable=True)
 
+    # Proxy info
+    proxy_id = Column(Integer, ForeignKey("proxies.id", ondelete="SET NULL"), nullable=True, index=True)
+    proxy_exit_ip = Column(String(64), nullable=True)
+    proxy_error = Column(Text, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 

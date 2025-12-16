@@ -9,6 +9,7 @@ const links = [
   { href: "/admin/subscriptions", label: "Subscriptions" },
   { href: "/admin/search-analytics", label: "Search Analytics" },
   { href: "/admin/providers", label: "Providers" },
+  { href: "/admin/proxies", label: "Proxies" },
   { href: "/admin/data/sources", label: "Data Engine" },
 ];
 

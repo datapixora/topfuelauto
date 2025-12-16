@@ -12,6 +12,7 @@ import os
 
 from app.core.database import get_db_context
 from app.services import data_engine_service as service
+from app.services import proxy_service
 from app.services import crypto_service
 from app.schemas import data_engine as schemas
 from app.workers.celery_app import celery_app
@@ -125,6 +126,9 @@ def run_source_scrape(source_id: int) -> dict:
 
         logger.info(f"Starting scrape run for source: {source.key}")
 
+        proxy_for_run = proxy_service.select_proxy_for_run(db)
+        proxy_id = proxy_for_run.id if proxy_for_run else None
+
         # Create run record
         run = service.create_run(
             db,
@@ -136,12 +140,13 @@ def run_source_scrape(source_id: int) -> dict:
                 pages_done=0,
                 items_found=0,
                 items_staged=0,
+                proxy_id=proxy_id,
             )
         )
 
         try:
             # Execute scraping
-            result = _execute_scrape(db, source, run)
+            result = _execute_scrape(db, source, run, proxy_for_run)
 
             if result.get("blocked"):
                 # Mark as blocked (not a success)
@@ -171,6 +176,7 @@ def run_source_scrape(source_id: int) -> dict:
                     "status": "blocked",
                     "block_reason": result.get("block_reason"),
                     "diagnostics": result.get("diagnostics"),
+                    "proxy_exit_ip": result.get("proxy_exit_ip"),
                 }
 
             if result.get("proxy_failed"):
@@ -185,9 +191,13 @@ def run_source_scrape(source_id: int) -> dict:
                         items_staged=result.get("items_staged", 0),
                         error_summary=result.get("error")[:500] if result.get("error") else "Proxy failed",
                         debug_json=result.get("debug_info"),
+                        proxy_exit_ip=result.get("proxy_exit_ip"),
+                        proxy_error=result.get("error"),
                     ),
                 )
                 source.last_run_at = datetime.utcnow()
+                if proxy_for_run:
+                    proxy_service.record_proxy_failure(db, proxy_for_run, result.get("error") or "proxy error")
                 service.record_proxy_failure(db, source, result.get("error") or "proxy error")
                 db.commit()
 
@@ -200,21 +210,23 @@ def run_source_scrape(source_id: int) -> dict:
                     "status": "proxy_failed",
                     "error": result.get("error"),
                     "diagnostics": result.get("diagnostics"),
+                    "proxy_exit_ip": result.get("proxy_exit_ip"),
                 }
 
             # Update run as succeeded
-            service.update_run(
-                db,
-                run.id,
-                schemas.AdminRunUpdate(
-                    status="succeeded",
-                    finished_at=datetime.utcnow(),
-                    pages_done=result["pages_done"],
-                    items_found=result["items_found"],
-                    items_staged=result["items_staged"],
-                    debug_json=result.get("debug_info"),
+                service.update_run(
+                    db,
+                    run.id,
+                    schemas.AdminRunUpdate(
+                        status="succeeded",
+                        finished_at=datetime.utcnow(),
+                        pages_done=result["pages_done"],
+                        items_found=result["items_found"],
+                        items_staged=result["items_staged"],
+                        debug_json=result.get("debug_info"),
+                        proxy_exit_ip=result.get("proxy_exit_ip"),
+                    )
                 )
-            )
 
             # Update source with success
             source.last_run_at = datetime.utcnow()
@@ -233,6 +245,7 @@ def run_source_scrape(source_id: int) -> dict:
                 "status": "succeeded",
                 "items_found": result["items_found"],
                 "items_staged": result["items_staged"],
+                "proxy_exit_ip": result.get("proxy_exit_ip"),
             }
 
         except Exception as e:
@@ -271,7 +284,7 @@ def run_source_scrape(source_id: int) -> dict:
             }
 
 
-def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
+def _execute_scrape(db: Session, source: Any, run: Any, proxy: Any = None) -> dict:
     """
     Execute the actual scraping logic.
 
@@ -296,6 +309,7 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
     # Configure HTTP client with proxy and timeouts
     proxy_used = False
     proxy_meta = {}
+    proxy_exit_ip = None
 
     # Lightweight UA rotation
     user_agents = [
@@ -311,33 +325,19 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
     }
 
     proxy_url = None
-    # Prefer env-provided SmartProxy
-    env_proxy_url, env_meta = _build_proxy_from_env()
-    if env_proxy_url:
-        proxy_url = env_proxy_url
-        proxy_meta = env_meta
-    elif settings_json.get("proxy_enabled") and settings_json.get("proxy_url"):
-        proxy_url = settings_json["proxy_url"]
-
-        # Add auth to proxy URL if present; add rotating session id for SmartProxy-style gateways
-        if settings_json.get("proxy_username") and settings_json.get("proxy_password"):
-            from urllib.parse import urlparse, urlunparse
-            parsed = urlparse(proxy_url)
-            session_id = random.randint(1000, 9999)
-            proxy_user = f"{settings_json['proxy_username']}-session-{session_id}"
-            proxy_url = urlunparse((
-                parsed.scheme,
-                f"{proxy_user}:{settings_json['proxy_password']}@{parsed.netloc}",
-                parsed.path,
-                parsed.params,
-                parsed.query,
-                parsed.fragment
-            ))
-            proxy_meta = {
-                "proxy_host": parsed.hostname,
-                "proxy_port": parsed.port,
-                "proxy_username_masked": _mask_secret(proxy_user),
-            }
+    if proxy:
+        proxy_url = proxy_service.build_proxy_url(proxy)
+        proxy_meta = {
+            "proxy_host": proxy.host,
+            "proxy_port": proxy.port,
+            "proxy_username_masked": proxy_service.mask_username(proxy.username),
+        }
+    else:
+        # Fallback to env-based proxy if no DB proxy
+        env_proxy_url, env_meta = _build_proxy_from_env()
+        if env_proxy_url:
+            proxy_url = env_proxy_url
+            proxy_meta = env_meta
 
     if proxy_url:
         client_kwargs["proxy"] = proxy_url
@@ -346,7 +346,10 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
         debug_info["proxy"] = {k: v for k, v in proxy_meta.items() if v}
 
         if (settings_json.get("debug_proxy_check") or os.getenv("DATA_ENGINE_DEBUG_PROXY") == "1"):
-            debug_info["proxy_check"] = check_proxy(proxy_url)
+            check = check_proxy(proxy_url)
+            debug_info["proxy_check"] = check
+            if check.get("ip"):
+                proxy_exit_ip = check["ip"]
 
     # Rate limiting setup
     requests_per_second = source.rate_per_minute / 60.0
@@ -413,15 +416,16 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
                     )
                     if blocked:
                         logger.warning(f"Blocked by bot protection on page {page_num}: {block_reason}")
-                        return {
-                            "blocked": True,
-                            "block_reason": block_reason,
-                            "pages_done": pages_done,
-                            "items_found": items_found,
-                            "items_staged": items_staged,
-                            "debug_info": {**debug_info, "block_reason": block_reason},
-                            "diagnostics": diagnostics,
-                        }
+                    return {
+                        "blocked": True,
+                        "block_reason": block_reason,
+                        "pages_done": pages_done,
+                        "items_found": items_found,
+                        "items_staged": items_staged,
+                        "debug_info": {**debug_info, "block_reason": block_reason},
+                        "diagnostics": diagnostics,
+                        "proxy_exit_ip": proxy_exit_ip,
+                    }
 
                     # Parse items from page
                     page_items = _parse_list_page(html, source.key)
@@ -496,6 +500,7 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
                     "items_found": items_found,
                     "items_staged": items_staged,
                     "debug_info": debug_info,
+                    "proxy_exit_ip": proxy_exit_ip,
                 }
             except Exception as e:
                 logger.error(f"Error fetching page {page_num}: {e}")
@@ -513,6 +518,7 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
         "items_found": items_found,
         "items_staged": items_staged,
         "debug_info": debug_info,
+        "proxy_exit_ip": proxy_exit_ip,
     }
 
 

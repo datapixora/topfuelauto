@@ -102,6 +102,7 @@
 91. [x] Data Engine: add block diagnostics (status_code, final_url, html_len, proxy_used), per-source cooldown (auto-pause 6h after 2 blocks/30m), cache duplicate signatures to avoid repeat hits, surface cooldown/last block in admin UI.
 92. [x] SmartProxy hardening: rotate session-based proxy credentials + user agents, cache signatures 10m to reduce hits, and keep bot-block handling (no bypass).
 93. [x] Fix proxy config and classify proxy failures: env-driven SmartProxy URL, masked creds, proxy health check (ipify), proxy_failed status with cooldown, UI badges.
+94. [x] Admin Proxies tab + DB-managed pool: CRUD + health checks, encrypted passwords, proxy-weighted selection in Data Engine, run-level proxy diagnostics, UI pool metrics.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
@@ -148,3 +149,4 @@ Next steps:
 - [x] Milestone 1: Harden SearchEvent logging (fields, caching/rate-limit signals, safe errors).
 - [ ] Milestone 2: Admin analytics endpoints (overview, timeseries, top queries, zero-results, provider health).
 - [ ] Milestone 3: Admin analytics UI (cards, charts, tables).
+

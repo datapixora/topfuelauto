@@ -484,3 +484,30 @@ export async function testProxyConnection(payload: {
 }) {
   return apiPost("/admin/data/test-proxy", payload);
 }
+
+// Admin proxies
+export async function listProxies() {
+  return apiGet<any[]>("/admin/proxies/");
+}
+
+export async function createProxy(payload: any) {
+  return apiPost("/admin/proxies/", payload);
+}
+
+export async function updateProxy(id: number, payload: any) {
+  const res = await authFetch(`/admin/proxies/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Update failed (${res.status})`);
+  return res.json();
+}
+
+export async function checkProxy(id: number) {
+  return apiPost(`/admin/proxies/${id}/check`, {});
+}
+
+export async function checkAllProxies() {
+  return apiPost("/admin/proxies/check-bulk", {});
+}

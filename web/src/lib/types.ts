@@ -258,6 +258,9 @@ export type DataRun = {
   items_staged: number;
   error_summary?: string | null;
   debug_json?: Record<string, any> | null;
+  proxy_id?: number | null;
+  proxy_exit_ip?: string | null;
+  proxy_error?: string | null;
   created_at: string;
 };
 
@@ -270,6 +273,25 @@ export type StagedListingAttribute = {
   value_bool?: boolean | null;
   unit?: string | null;
   created_at: string;
+};
+
+export type ProxyEndpoint = {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  username?: string | null;
+  scheme: string;
+  is_enabled: boolean;
+  weight: number;
+  max_concurrency: number;
+  region?: string | null;
+  last_check_at?: string | null;
+  last_check_status?: string | null;
+  last_exit_ip?: string | null;
+  last_error?: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type StagedListing = {
