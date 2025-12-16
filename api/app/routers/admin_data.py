@@ -1,12 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
+import httpx
+import logging
 
 from app.core.database import get_db
 from app.core.security import get_current_admin
 from app.models.user import User
 from app.schemas import data_engine as schemas
 from app.services import data_engine_service as service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/admin/data", tags=["admin-data"])
 
@@ -185,3 +190,104 @@ def list_all_staged_listings(
 ):
     """List all staged listings."""
     return service.list_staged_listings(db, skip=skip, limit=limit)
+
+
+# ============================================================================
+# Proxy Testing Endpoint
+# ============================================================================
+
+class ProxyTestRequest(BaseModel):
+    proxy_url: str
+    proxy_username: Optional[str] = None
+    proxy_password: Optional[str] = None
+    test_url: str = "https://httpbin.org/ip"
+
+
+class ProxyTestResponse(BaseModel):
+    success: bool
+    message: str
+    latency_ms: Optional[int] = None
+    response_data: Optional[dict] = None
+
+
+@router.post("/test-proxy", response_model=ProxyTestResponse)
+async def test_proxy(
+    request: ProxyTestRequest,
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Test proxy connectivity by making a simple HTTP request.
+    Returns success status, latency, and response data.
+    """
+    import time
+
+    try:
+        # Build proxy URL with authentication
+        proxy_url = request.proxy_url
+        if request.proxy_username and request.proxy_password:
+            # Parse proxy URL to inject credentials
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(proxy_url)
+            proxy_url = urlunparse((
+                parsed.scheme,
+                f"{request.proxy_username}:{request.proxy_password}@{parsed.netloc}",
+                parsed.path,
+                parsed.params,
+                parsed.query,
+                parsed.fragment
+            ))
+
+        # Configure httpx client with proxy
+        proxies = {
+            "http://": proxy_url,
+            "https://": proxy_url,
+        }
+
+        start = time.time()
+        async with httpx.AsyncClient(proxies=proxies, timeout=10.0) as client:
+            response = await client.get(request.test_url)
+            latency = int((time.time() - start) * 1000)
+
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                except:
+                    data = {"text": response.text[:200]}
+
+                return ProxyTestResponse(
+                    success=True,
+                    message=f"Proxy connection successful (HTTP {response.status_code})",
+                    latency_ms=latency,
+                    response_data=data
+                )
+            else:
+                return ProxyTestResponse(
+                    success=False,
+                    message=f"Proxy returned HTTP {response.status_code}",
+                    latency_ms=latency,
+                    response_data=None
+                )
+
+    except httpx.ProxyError as e:
+        logger.error(f"Proxy error: {e}")
+        return ProxyTestResponse(
+            success=False,
+            message=f"Proxy connection failed: {str(e)}",
+            latency_ms=None,
+            response_data=None
+        )
+    except httpx.TimeoutException:
+        return ProxyTestResponse(
+            success=False,
+            message="Proxy connection timed out (10s)",
+            latency_ms=None,
+            response_data=None
+        )
+    except Exception as e:
+        logger.error(f"Unexpected proxy test error: {e}")
+        return ProxyTestResponse(
+            success=False,
+            message=f"Test failed: {str(e)}",
+            latency_ms=None,
+            response_data=None
+        )

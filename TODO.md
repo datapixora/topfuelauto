@@ -60,6 +60,7 @@
 56. [x] Data Engine STEP 1: Database schema - created tables (admin_sources, admin_runs, staged_listings, staged_listing_attributes, merged_listings, merged_listing_attributes), Alembic migration, SQLAlchemy models, Pydantic schemas, and basic CRUD service functions.
 57. [x] Data Engine STEP 2: Admin API endpoints - created FastAPI router with CRUD endpoints for sources, runs, and staged listings. All endpoints require admin auth. No scraping yet.
 58. [x] Data Engine STEP 3: Admin UI - created Next.js admin pages (/admin/data/sources list, /admin/data/sources/[id] details, /admin/data/runs/[runId] progress view). Card-based UI with enable/disable toggles, delete confirmations, run history, and staged items preview.
+59. [x] Data Engine STEP 4: Proxy Settings - added crypto_service.py (Fernet encryption for sensitive data with ENCRYPTION_KEY env var), updated data_engine_service to auto-encrypt/decrypt proxy credentials in settings_json (proxy_username, proxy_password), added POST /admin/data/test-proxy endpoint for connectivity testing, created /admin/data/sources/new page with full source creation form including proxy configuration (URL, auth, type, test button with latency display), and added cryptography==42.0.5 to requirements.txt.
 56. [x] User signup MVP (email/password) live.
 57. [x] Fix quota decrement only on non-zero results.
 58. [x] Fix quota banner loading state and persistence on return.

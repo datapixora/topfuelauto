@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
@@ -10,6 +11,56 @@ from app.models.staged_listing_attribute import StagedListingAttribute
 from app.models.merged_listing import MergedListing
 from app.models.merged_listing_attribute import MergedListingAttribute
 from app.schemas import data_engine as schemas
+from app.services import crypto_service
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Proxy Encryption Helpers
+# ============================================================================
+
+PROXY_ENCRYPTED_FIELDS = ["proxy_password", "proxy_username"]
+
+
+def encrypt_proxy_settings(settings_json: Optional[dict]) -> Optional[dict]:
+    """
+    Encrypt sensitive proxy fields in settings_json.
+    Fields encrypted: proxy_password, proxy_username
+    """
+    if not settings_json:
+        return settings_json
+
+    result = settings_json.copy()
+    for field in PROXY_ENCRYPTED_FIELDS:
+        if field in result and result[field]:
+            try:
+                result[field] = crypto_service.encrypt_string(result[field])
+            except Exception as e:
+                logger.error(f"Failed to encrypt {field}: {e}")
+                raise ValueError(f"Failed to encrypt proxy credentials")
+
+    return result
+
+
+def decrypt_proxy_settings(settings_json: Optional[dict]) -> Optional[dict]:
+    """
+    Decrypt sensitive proxy fields in settings_json for display/use.
+    Returns a copy with decrypted fields.
+    """
+    if not settings_json:
+        return settings_json
+
+    result = settings_json.copy()
+    for field in PROXY_ENCRYPTED_FIELDS:
+        if field in result and result[field]:
+            try:
+                result[field] = crypto_service.decrypt_string(result[field])
+            except Exception as e:
+                logger.warning(f"Failed to decrypt {field}: {e}")
+                # Keep encrypted value if decryption fails
+
+    return result
 
 
 # ============================================================================
@@ -17,8 +68,14 @@ from app.schemas import data_engine as schemas
 # ============================================================================
 
 def create_source(db: Session, source: schemas.AdminSourceCreate) -> AdminSource:
-    """Create a new admin source."""
-    db_source = AdminSource(**source.dict())
+    """Create a new admin source (encrypts proxy credentials in settings_json)."""
+    source_data = source.dict()
+
+    # Encrypt proxy credentials if present in settings_json
+    if source_data.get("settings_json"):
+        source_data["settings_json"] = encrypt_proxy_settings(source_data["settings_json"])
+
+    db_source = AdminSource(**source_data)
     db.add(db_source)
     db.commit()
     db.refresh(db_source)
@@ -44,12 +101,17 @@ def list_sources(db: Session, skip: int = 0, limit: int = 100, enabled_only: boo
 
 
 def update_source(db: Session, source_id: int, source_update: schemas.AdminSourceUpdate) -> Optional[AdminSource]:
-    """Update an admin source."""
+    """Update an admin source (encrypts proxy credentials in settings_json)."""
     db_source = get_source(db, source_id)
     if not db_source:
         return None
 
     update_data = source_update.dict(exclude_unset=True)
+
+    # Encrypt proxy credentials if settings_json is being updated
+    if "settings_json" in update_data and update_data["settings_json"]:
+        update_data["settings_json"] = encrypt_proxy_settings(update_data["settings_json"])
+
     for field, value in update_data.items():
         setattr(db_source, field, value)
 

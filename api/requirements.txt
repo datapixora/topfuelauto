@@ -17,3 +17,4 @@ redis==5.0.4
 celery==5.3.6
 stripe==8.6.0
 celery==5.3.6
+cryptography==42.0.5
