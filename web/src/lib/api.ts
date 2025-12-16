@@ -472,3 +472,11 @@ export async function bulkApproveStagedListings(listingIds: number[]) {
 export async function bulkRejectStagedListings(listingIds: number[]) {
   return apiPost("/admin/data/staged/bulk-reject", { listing_ids: listingIds });
 }
+
+export async function testProxyConnection(payload: {
+  proxy_url: string;
+  proxy_username?: string | null;
+  proxy_password?: string | null;
+}) {
+  return apiPost("/admin/data/test-proxy", payload);
+}

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { Button } from "../../../../../components/ui/button";
-import { createDataSource } from "../../../../../lib/api";
+import { createDataSource, testProxyConnection } from "../../../../../lib/api";
 
 export default function NewSourcePage() {
   const router = useRouter();
@@ -99,20 +99,12 @@ export default function NewSourcePage() {
 
     try {
       const proxyUrl = `${formData.proxy_type}://${formData.proxy_host}:${formData.proxy_port}`;
-      const response = await fetch("/api/v1/admin/data/test-proxy", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("tfa_token")}`,
-        },
-        body: JSON.stringify({
-          proxy_url: proxyUrl,
-          proxy_username: formData.proxy_username || null,
-          proxy_password: formData.proxy_password || null,
-        }),
+      const data = await testProxyConnection({
+        proxy_url: proxyUrl,
+        proxy_username: formData.proxy_username || null,
+        proxy_password: formData.proxy_password || null,
       });
 
-      const data = await response.json();
       setProxyTestResult({
         success: data.success,
         message: data.message + (data.latency_ms ? ` (${data.latency_ms}ms)` : ""),
