@@ -44,13 +44,14 @@ def _detect_block(response: httpx.Response, html: str) -> Tuple[bool, Optional[s
     return False, None
 
 
-def _diagnostic_payload(response: httpx.Response, blocked: bool, block_reason: Optional[str]) -> Dict[str, Any]:
+def _diagnostic_payload(response: httpx.Response, blocked: bool, block_reason: Optional[str], proxy_used: bool) -> Dict[str, Any]:
     return {
         "status_code": response.status_code,
         "final_url": str(response.url),
         "html_len": len(response.text or ""),
         "blocked": blocked,
         "block_reason": block_reason,
+        "proxy_used": proxy_used,
     }
 
 
@@ -114,11 +115,8 @@ def run_source_scrape(source_id: int) -> dict:
                         debug_json=result.get("debug_info"),
                     ),
                 )
-                source.failure_count += 1
-                source.disabled_reason = "Blocked by bot protection (Incapsula/Imperva)"
-                backoff_minutes = max(source.schedule_minutes * 4, 180)
-                source.next_run_at = datetime.utcnow() + timedelta(minutes=backoff_minutes)
                 source.last_run_at = datetime.utcnow()
+                service.record_block_event(db, source, result.get("block_reason") or "blocked", result.get("diagnostics") or {})
                 db.commit()
 
                 logger.warning(
@@ -224,6 +222,8 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
         settings_json = service.decrypt_proxy_settings(settings_json)
 
     # Configure HTTP client with proxy and timeouts
+    proxy_used = False
+
     client_kwargs = {
         "timeout": httpx.Timeout(source.timeout_seconds),
         "follow_redirects": True,
@@ -249,11 +249,18 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
             "http://": proxy_url,
             "https://": proxy_url,
         }
+        proxy_used = True
         debug_info["proxy_used"] = True
 
     # Rate limiting setup
     requests_per_second = source.rate_per_minute / 60.0
     min_delay = 1.0 / requests_per_second if requests_per_second > 0 else 0
+
+    # In-memory cache to avoid duplicate fetches in a short window
+    CACHE_TTL_SECONDS = 10 * 60
+    global SIGNATURE_CACHE  # defined below
+    if "SIGNATURE_CACHE" not in globals():
+        SIGNATURE_CACHE = {}
 
     with httpx.Client(**client_kwargs) as client:
         # Fetch pages with pagination
@@ -262,45 +269,65 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
                 # Build page URL with proper query param handling
                 separator = "&" if "?" in source.base_url else "?"
                 page_url = f"{source.base_url}{separator}page={page_num}"
+                signature = f"{source.key}:{page_url}"
 
                 logger.info(f"Fetching page {page_num}/{source.max_pages_per_run}: {page_url}")
 
-                # Rate limiting delay
-                if pages_done > 0:
-                    time.sleep(min_delay)
+                cache_entry = SIGNATURE_CACHE.get(signature)
+                cache_hit = False
+                if cache_entry:
+                    ts, cached_items, cached_diagnostics = cache_entry
+                    if time.time() - ts <= CACHE_TTL_SECONDS:
+                        cache_hit = True
+                        logger.info(f"Cache hit for {signature}, skipping fetch")
+                        diagnostics = {**cached_diagnostics, "cache_hit": True}
+                        debug_info.setdefault("pages", []).append({"page": page_num, **diagnostics})
+                        page_items = cached_items
+                    else:
+                        SIGNATURE_CACHE.pop(signature, None)
 
-                # Fetch page
-                start_time = time.time()
-                response = client.get(page_url)
-                response.raise_for_status()
-                fetch_time = time.time() - start_time
+                if not cache_hit:
+                    # Rate limiting delay
+                    if pages_done > 0:
+                        time.sleep(min_delay)
 
-                logger.debug(f"Page {page_num} fetched in {fetch_time:.2f}s (status {response.status_code})")
+                    # Fetch page
+                    start_time = time.time()
+                    response = client.get(page_url)
+                    response.raise_for_status()
+                    fetch_time = time.time() - start_time
 
-                pages_done += 1
+                    logger.debug(f"Page {page_num} fetched in {fetch_time:.2f}s (status {response.status_code})")
 
-                # Bot-block detection
-                html = response.text
-                blocked, block_reason = _detect_block(response, html)
-                diagnostics = _diagnostic_payload(response, blocked, block_reason)
-                debug_info.setdefault("pages", []).append(
-                    {"page": page_num, **diagnostics}
-                )
-                if blocked:
-                    logger.warning(f"Blocked by bot protection on page {page_num}: {block_reason}")
-                    return {
-                        "blocked": True,
-                        "block_reason": block_reason,
-                        "pages_done": pages_done,
-                        "items_found": items_found,
-                        "items_staged": items_staged,
-                        "debug_info": {**debug_info, "block_reason": block_reason},
-                        "diagnostics": diagnostics,
-                    }
+                    pages_done += 1
 
-                # Parse items from page (placeholder - actual parsing depends on source)
-                # For STEP 5, we'll just create a simple parser
-                page_items = _parse_list_page(html, source.key)
+                    # Bot-block detection
+                    html = response.text
+                    blocked, block_reason = _detect_block(response, html)
+                    diagnostics = _diagnostic_payload(response, blocked, block_reason, proxy_used)
+                    diagnostics["cache_hit"] = False
+                    debug_info.setdefault("pages", []).append(
+                        {"page": page_num, **diagnostics}
+                    )
+                    if blocked:
+                        logger.warning(f"Blocked by bot protection on page {page_num}: {block_reason}")
+                        return {
+                            "blocked": True,
+                            "block_reason": block_reason,
+                            "pages_done": pages_done,
+                            "items_found": items_found,
+                            "items_staged": items_staged,
+                            "debug_info": {**debug_info, "block_reason": block_reason},
+                            "diagnostics": diagnostics,
+                        }
+
+                    # Parse items from page
+                    page_items = _parse_list_page(html, source.key)
+
+                    # Only cache non-blocked results with reasonable length
+                    if len(html or "") >= 1000:
+                        SIGNATURE_CACHE[signature] = (time.time(), page_items, diagnostics)
+
                 items_found += len(page_items)
 
                 # Store items in staged_listings (with auto-merge check)

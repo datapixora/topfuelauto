@@ -237,6 +237,9 @@ export type DataSource = {
   merge_rules?: MergeRules | null;
   failure_count: number;
   disabled_reason?: string | null;
+  last_block_reason?: string | null;
+  last_blocked_at?: string | null;
+  cooldown_until?: string | null;
   last_run_at?: string | null;
   next_run_at?: string | null;
   created_at: string;

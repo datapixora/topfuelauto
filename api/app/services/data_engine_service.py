@@ -106,6 +106,49 @@ def normalize_merge_rules(incoming: Optional[dict], settings_json: Optional[dict
     return rules
 
 
+# ============================================================================
+# Block tracking
+# ============================================================================
+
+def recent_block_count(db: Session, source_id: int, within_minutes: int = 30) -> int:
+    window_start = datetime.utcnow() - timedelta(minutes=within_minutes)
+    return (
+        db.query(AdminRun)
+        .filter(
+            AdminRun.source_id == source_id,
+            AdminRun.status == "blocked",
+            AdminRun.created_at >= window_start,
+        )
+        .count()
+    )
+
+
+def record_block_event(
+    db: Session,
+    source: AdminSource,
+    block_reason: str,
+    diagnostics: dict,
+    cooldown_hours: int = 6,
+    threshold: int = 2,
+) -> None:
+    """Update source after a blocked run with optional cooldown."""
+    now = datetime.utcnow()
+    source.last_block_reason = block_reason
+    source.last_blocked_at = now
+    source.failure_count += 1
+
+    # If repeated blocks within window, pause
+    if recent_block_count(db, source.id, within_minutes=30) >= threshold - 1:
+        source.cooldown_until = now + timedelta(hours=cooldown_hours)
+        source.next_run_at = source.cooldown_until
+        source.disabled_reason = f"Auto-paused after repeated blocks ({block_reason}) until {source.cooldown_until.isoformat()}Z"
+    else:
+        # shorter backoff
+        source.next_run_at = now + timedelta(minutes=max(source.schedule_minutes * 2, 30))
+
+    db.add(source)
+
+
 def should_auto_merge(db: Session, source: Any, staged_listing: Any) -> tuple[bool, Optional[str]]:
     """
     Decide if a staged listing meets auto-approval criteria.
@@ -314,6 +357,7 @@ def get_due_sources(db: Session) -> List[AdminSource]:
         db.query(AdminSource)
         .filter(
             AdminSource.is_enabled.is_(True),
+            or_(AdminSource.cooldown_until.is_(None), AdminSource.cooldown_until <= now),
             or_(AdminSource.next_run_at.is_(None), AdminSource.next_run_at <= now),
         )
         .order_by(AdminSource.next_run_at.asc().nullsfirst())

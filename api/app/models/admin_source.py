@@ -32,6 +32,9 @@ class AdminSource(Base):
     # Configuration (selectors, recipes, allowlist paths)
     settings_json = Column(JSONB, nullable=True)
     merge_rules = Column(JSONB, nullable=True)
+    last_block_reason = Column(Text, nullable=True)
+    last_blocked_at = Column(DateTime, nullable=True)
+    cooldown_until = Column(DateTime, nullable=True)
 
     # Failure tracking
     failure_count = Column(Integer, nullable=False, default=0)

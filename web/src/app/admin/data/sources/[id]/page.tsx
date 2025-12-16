@@ -257,6 +257,21 @@ export default function SourceDetailPage() {
               </span>
             </div>
             <div className="flex justify-between">
+              <span className="text-slate-400">Cooldown until:</span>
+              <span className="font-medium text-xs">
+                {source.cooldown_until ? formatDate(source.cooldown_until) : "None"}
+              </span>
+            </div>
+            {source.last_block_reason && (
+              <div className="flex justify-between text-orange-300">
+                <span>Last block:</span>
+                <span className="text-xs text-right">
+                  {source.last_block_reason}
+                  {source.last_blocked_at && ` @ ${formatDate(source.last_blocked_at)}`}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between">
               <span className="text-slate-400">Created:</span>
               <span className="font-medium text-xs">{formatDate(source.created_at)}</span>
             </div>

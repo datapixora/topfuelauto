@@ -57,6 +57,9 @@ class AdminSourceUpdate(BaseModel):
 
 class AdminSourceOut(AdminSourceBase):
     id: int
+    last_block_reason: Optional[str] = None
+    last_blocked_at: Optional[datetime] = None
+    cooldown_until: Optional[datetime] = None
     failure_count: int
     disabled_reason: Optional[str] = None
     last_run_at: Optional[datetime] = None

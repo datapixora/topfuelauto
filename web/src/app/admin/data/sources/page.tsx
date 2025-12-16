@@ -111,6 +111,18 @@ export default function DataSourcesPage() {
                   <span className="text-slate-400">Next run:</span>
                   <span className="font-medium text-xs">{formatDate(source.next_run_at)}</span>
                 </div>
+                {source.cooldown_until && new Date(source.cooldown_until) > new Date() && (
+                  <div className="flex justify-between text-orange-300">
+                    <span>Cooldown until:</span>
+                    <span className="font-medium text-xs">{formatDate(source.cooldown_until)}</span>
+                  </div>
+                )}
+                {source.last_block_reason && (
+                  <div className="text-xs text-orange-300 mt-1">
+                    Blocked: {source.last_block_reason}
+                    {source.last_blocked_at && ` @ ${formatDate(source.last_blocked_at)}`}
+                  </div>
+                )}
                 {source.failure_count > 0 && (
                   <div className="flex justify-between text-red-400">
                     <span>Failures:</span>
