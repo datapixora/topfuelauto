@@ -128,8 +128,19 @@ def run_source_scrape(source_id: int) -> dict:
 
         logger.info(f"Starting scrape run for source: {source.key}")
 
-        proxy_for_run = proxy_service.select_proxy_for_run(db) if USE_PROXY_POOL else None
-        proxy_id = proxy_for_run.id if proxy_for_run else None
+        # Determine proxy based on source.proxy_mode
+        proxy_for_run = None
+        proxy_id = None
+
+        if source.proxy_mode == "pool":
+            if USE_PROXY_POOL:
+                proxy_for_run = proxy_service.select_proxy_for_run(db)
+                proxy_id = proxy_for_run.id if proxy_for_run else None
+            else:
+                logger.warning(f"Source {source.key} has proxy_mode='pool' but DATA_ENGINE_USE_PROXY_POOL=0")
+                # Fallback to no proxy (could also raise error if desired)
+        # elif source.proxy_mode == "manual": handled in _execute_scrape via settings_json
+        # elif source.proxy_mode == "none": no proxy
 
         # Create run record
         run = service.create_run(
@@ -327,19 +338,53 @@ def _execute_scrape(db: Session, source: Any, run: Any, proxy: Any = None) -> di
     }
 
     proxy_url = None
-    if proxy:
+
+    # Determine proxy based on source.proxy_mode
+    if source.proxy_mode == "pool" and proxy:
+        # Use proxy from pool (passed in as parameter)
         proxy_url = proxy_service.build_proxy_url(proxy)
         proxy_meta = {
             "proxy_host": proxy.host,
             "proxy_port": proxy.port,
             "proxy_username_masked": proxy_service.mask_username(proxy.username),
         }
-    else:
-        # Fallback to env-based proxy if no DB proxy
-        env_proxy_url, env_meta = _build_proxy_from_env()
-        if env_proxy_url:
-            proxy_url = env_proxy_url
-            proxy_meta = env_meta
+    elif source.proxy_mode == "manual":
+        # Use manual proxy from settings_json
+        if settings_json.get("proxy_url"):
+            # If proxy_url is provided directly
+            proxy_url = settings_json["proxy_url"]
+            # Add auth if provided
+            if settings_json.get("proxy_username") and settings_json.get("proxy_password"):
+                from urllib.parse import urlparse, urlunparse
+                parsed = urlparse(proxy_url)
+                proxy_url = urlunparse((
+                    parsed.scheme,
+                    f"{settings_json['proxy_username']}:{settings_json['proxy_password']}@{parsed.netloc}",
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment
+                ))
+            proxy_meta = {
+                "proxy_url": proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url,  # Hide credentials
+            }
+        elif settings_json.get("proxy_host"):
+            # Build proxy_url from components
+            scheme = settings_json.get("proxy_type", "http")
+            host = settings_json["proxy_host"]
+            port = settings_json.get("proxy_port", 80)
+            user = settings_json.get("proxy_username", "")
+            pwd = settings_json.get("proxy_password", "")
+            if user and pwd:
+                proxy_url = f"{scheme}://{user}:{pwd}@{host}:{port}"
+            else:
+                proxy_url = f"{scheme}://{host}:{port}"
+            proxy_meta = {
+                "proxy_host": host,
+                "proxy_port": port,
+                "proxy_username_masked": user[:4] + "***" if user else None,
+            }
+    # elif source.proxy_mode == "none": no proxy used
 
     if proxy_url:
         client_kwargs["proxy"] = proxy_url

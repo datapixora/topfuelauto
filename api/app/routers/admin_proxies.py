@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_admin
 from app.schemas import proxy as schemas
+from app.schemas.data_engine import ProxyOption
 from app.services import proxy_service
 from app.models.user import User
 
@@ -14,6 +15,24 @@ router = APIRouter(prefix="/api/v1/admin/proxies", tags=["admin-proxies"])
 def list_proxies(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     proxies = proxy_service.list_proxies(db)
     return [proxy_service.mask_proxy(p) for p in proxies]
+
+
+@router.get("/options", response_model=list[ProxyOption])
+def get_proxy_options(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    """Get list of enabled proxies for source configuration (no secrets)"""
+    proxies = proxy_service.list_enabled_proxies(db)
+    return [
+        ProxyOption(
+            id=p.id,
+            name=p.name,
+            host=p.host,
+            port=p.port,
+            scheme=p.scheme,
+            last_check_status=p.last_check_status,
+            last_exit_ip=p.last_exit_ip,
+        )
+        for p in proxies
+    ]
 
 
 @router.post("/", response_model=schemas.ProxyOut, status_code=201)

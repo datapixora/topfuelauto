@@ -1,8 +1,20 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Index
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Index, ForeignKey, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
+import enum
 
 from app.core.database import Base
+
+
+class SourceMode(str, enum.Enum):
+    LIST_ONLY = "list_only"
+    FOLLOW_DETAILS = "follow_details"
+
+
+class ProxyMode(str, enum.Enum):
+    NONE = "none"
+    POOL = "pool"
+    MANUAL = "manual"
 
 
 class AdminSource(Base):
@@ -28,6 +40,11 @@ class AdminSource(Base):
     concurrency = Column(Integer, nullable=False, default=2)
     timeout_seconds = Column(Integer, nullable=False, default=10)
     retry_count = Column(Integer, nullable=False, default=1)
+
+    # Proxy configuration
+    proxy_mode = Column(SAEnum(ProxyMode), default=ProxyMode.NONE, nullable=False)
+    proxy_id = Column(Integer, ForeignKey("proxies.id", ondelete="SET NULL"), nullable=True)
+    proxy_enabled = Column(Boolean, default=False, nullable=False)  # Kept for compatibility
 
     # Configuration (selectors, recipes, allowlist paths)
     settings_json = Column(JSONB, nullable=True)

@@ -29,7 +29,19 @@ def list_sources(
     admin: User = Depends(get_current_admin),
 ):
     """List all admin data sources."""
-    return service.list_sources(db, skip=skip, limit=limit, enabled_only=enabled_only)
+    sources = service.list_sources(db, skip=skip, limit=limit, enabled_only=enabled_only)
+
+    # Attach proxy pool summary for sources using pool mode
+    proxy_pool_summary = None
+    for source in sources:
+        if source.proxy_mode == "pool":
+            if proxy_pool_summary is None:  # Compute once and reuse
+                proxy_pool_summary = service.get_proxy_pool_summary(db)
+            source.proxy_pool_summary = proxy_pool_summary
+        else:
+            source.proxy_pool_summary = None
+
+    return sources
 
 
 @router.post("/sources", response_model=schemas.AdminSourceOut, status_code=201)
@@ -57,6 +69,13 @@ def get_source(
     db_source = service.get_source(db, source_id)
     if not db_source:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    # Attach proxy pool summary if using pool mode
+    if db_source.proxy_mode == "pool":
+        db_source.proxy_pool_summary = service.get_proxy_pool_summary(db)
+    else:
+        db_source.proxy_pool_summary = None
+
     return db_source
 
 
@@ -71,6 +90,13 @@ def update_source(
     db_source = service.update_source(db, source_id, source_update)
     if not db_source:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    # Attach proxy pool summary if using pool mode
+    if db_source.proxy_mode == "pool":
+        db_source.proxy_pool_summary = service.get_proxy_pool_summary(db)
+    else:
+        db_source.proxy_pool_summary = None
+
     return db_source
 
 
@@ -97,6 +123,13 @@ def toggle_source(
     db_source = service.toggle_source(db, source_id)
     if not db_source:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    # Attach proxy pool summary if using pool mode
+    if db_source.proxy_mode == "pool":
+        db_source.proxy_pool_summary = service.get_proxy_pool_summary(db)
+    else:
+        db_source.proxy_pool_summary = None
+
     return db_source
 
 

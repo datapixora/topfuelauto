@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, List, Optional
 import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 
 from app.models.admin_source import AdminSource
 from app.models.admin_run import AdminRun
@@ -10,6 +10,7 @@ from app.models.staged_listing import StagedListing
 from app.models.staged_listing_attribute import StagedListingAttribute
 from app.models.merged_listing import MergedListing
 from app.models.merged_listing_attribute import MergedListingAttribute
+from app.models.proxy_endpoint import ProxyEndpoint
 from app.schemas import data_engine as schemas
 from app.services import crypto_service
 
@@ -21,6 +22,35 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 PROXY_ENCRYPTED_FIELDS = ["proxy_password", "proxy_username"]
+
+
+def get_proxy_pool_summary(db: Session) -> Optional[schemas.ProxyPoolSummary]:
+    """
+    Get summary of enabled proxies in the pool.
+    Returns enabled count, weight sum, and last exit IP from most recent check.
+    """
+    enabled_proxies = db.query(ProxyEndpoint).filter(ProxyEndpoint.is_enabled.is_(True)).all()
+
+    if not enabled_proxies:
+        return None
+
+    enabled_count = len(enabled_proxies)
+    weight_sum = sum(p.weight for p in enabled_proxies)
+
+    # Get the most recently checked proxy's exit IP
+    last_checked = (
+        db.query(ProxyEndpoint)
+        .filter(ProxyEndpoint.is_enabled.is_(True), ProxyEndpoint.last_check_at.isnot(None))
+        .order_by(ProxyEndpoint.last_check_at.desc())
+        .first()
+    )
+    last_exit_ip = last_checked.last_exit_ip if last_checked else None
+
+    return schemas.ProxyPoolSummary(
+        enabled_count=enabled_count,
+        weight_sum=weight_sum,
+        last_exit_ip=last_exit_ip
+    )
 
 
 def encrypt_proxy_settings(settings_json: Optional[dict]) -> Optional[dict]:
@@ -328,6 +358,37 @@ def update_source(db: Session, source_id: int, source_update: schemas.AdminSourc
         return None
 
     update_data = source_update.dict(exclude_unset=True)
+
+    # Handle proxy_mode changes
+    if "proxy_mode" in update_data:
+        from app.models.data_source import ProxyMode
+        proxy_mode = update_data["proxy_mode"]
+
+        if proxy_mode == ProxyMode.POOL:
+            # Clear manual proxy fields from settings_json when switching to pool
+            if "settings_json" not in update_data:
+                update_data["settings_json"] = db_source.settings_json.copy() if db_source.settings_json else {}
+            if update_data["settings_json"]:
+                update_data["settings_json"].pop("proxy_enabled", None)
+                update_data["settings_json"].pop("proxy_url", None)
+                update_data["settings_json"].pop("proxy_host", None)
+                update_data["settings_json"].pop("proxy_port", None)
+                update_data["settings_json"].pop("proxy_username", None)
+                update_data["settings_json"].pop("proxy_password", None)
+                update_data["settings_json"].pop("proxy_type", None)
+            # Update proxy_enabled for compatibility
+            update_data["proxy_enabled"] = True
+
+        elif proxy_mode == ProxyMode.MANUAL:
+            # Manual mode keeps settings_json proxy config
+            # Update proxy_enabled for compatibility
+            update_data["proxy_enabled"] = True
+
+        elif proxy_mode == ProxyMode.NONE:
+            # Disable proxy
+            update_data["proxy_enabled"] = False
+            if "proxy_id" not in update_data:
+                update_data["proxy_id"] = None
 
     # Encrypt proxy credentials if settings_json is being updated
     if "settings_json" in update_data and update_data["settings_json"]:

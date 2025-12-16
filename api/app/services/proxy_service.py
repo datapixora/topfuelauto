@@ -38,6 +38,10 @@ def list_proxies(db: Session) -> List[ProxyEndpoint]:
     return db.query(ProxyEndpoint).order_by(ProxyEndpoint.created_at.desc()).all()
 
 
+def list_enabled_proxies(db: Session) -> List[ProxyEndpoint]:
+    return db.query(ProxyEndpoint).filter(ProxyEndpoint.is_enabled.is_(True)).order_by(ProxyEndpoint.name).all()
+
+
 def get_proxy(db: Session, proxy_id: int) -> Optional[ProxyEndpoint]:
     return db.get(ProxyEndpoint, proxy_id)
 
