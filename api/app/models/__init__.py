@@ -17,3 +17,10 @@ from app.models.provider_setting import ProviderSetting
 from app.models.search_cache_entry import SearchCacheEntry
 from app.models.search_job import SearchJob
 from app.models.search_result import SearchResult
+# Data Engine models
+from app.models.admin_source import AdminSource
+from app.models.admin_run import AdminRun
+from app.models.staged_listing import StagedListing
+from app.models.staged_listing_attribute import StagedListingAttribute
+from app.models.merged_listing import MergedListing
+from app.models.merged_listing_attribute import MergedListingAttribute

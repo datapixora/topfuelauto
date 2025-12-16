@@ -57,6 +57,7 @@
 53. [ ] Add admin analytics charts for search usage.
 54. [x] Ensure admin plans endpoint works after quota fields (auto-run Alembic on Render start).
 55. [x] Search UI shows quota status and upgrade CTA on limit.
+56. [x] Data Engine STEP 1: Database schema - created tables (admin_sources, admin_runs, staged_listings, staged_listing_attributes, merged_listings, merged_listing_attributes), Alembic migration, SQLAlchemy models, Pydantic schemas, and basic CRUD service functions.
 56. [x] User signup MVP (email/password) live.
 57. [x] Fix quota decrement only on non-zero results.
 58. [x] Fix quota banner loading state and persistence on return.
