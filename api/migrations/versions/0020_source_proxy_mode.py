@@ -16,12 +16,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create enum type for proxy_mode
-    proxy_mode_enum = sa.Enum('none', 'pool', 'manual', name='proxymode')
-    proxy_mode_enum.create(op.get_bind(), checkfirst=True)
+    # Drop existing enum if it exists (from failed migration)
+    op.execute("DROP TYPE IF EXISTS proxymode CASCADE")
+
+    # Create enum type for proxy_mode with lowercase values
+    op.execute("CREATE TYPE proxymode AS ENUM ('none', 'pool', 'manual')")
 
     # Add columns to admin_sources
-    op.add_column("admin_sources", sa.Column("proxy_mode", sa.Enum('none', 'pool', 'manual', name='proxymode'), nullable=False, server_default="none"))
+    op.add_column("admin_sources", sa.Column("proxy_mode", sa.Enum('none', 'pool', 'manual', name='proxymode', create_type=False), nullable=False, server_default="none"))
     op.add_column("admin_sources", sa.Column("proxy_id", sa.Integer(), nullable=True))
     op.add_column("admin_sources", sa.Column("proxy_enabled", sa.Boolean(), nullable=False, server_default="false"))
 
@@ -39,5 +41,4 @@ def downgrade() -> None:
     op.drop_column("admin_sources", "proxy_mode")
 
     # Drop enum type
-    proxy_mode_enum = sa.Enum('none', 'pool', 'manual', name='proxymode')
-    proxy_mode_enum.drop(op.get_bind(), checkfirst=True)
+    op.execute("DROP TYPE IF EXISTS proxymode")
