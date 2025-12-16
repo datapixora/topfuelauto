@@ -301,6 +301,11 @@ def _parse_list_page(html: str, source_key: str) -> list[dict]:
         soup = BeautifulSoup(html, 'lxml')
         items = []
 
+        # Debug: Log HTML snippet to verify content
+        html_preview = html[:500] if html else "NO HTML"
+        logger.info(f"HTML preview for {source_key}: {html_preview}")
+        logger.info(f"HTML length: {len(html)} characters")
+
         # ============================================================================
         # CUSTOMIZE THIS SECTION FOR YOUR SOURCE
         # ============================================================================
