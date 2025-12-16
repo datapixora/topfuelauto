@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import List
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.core.security import get_current_admin
 from app.models.search_event import SearchEvent
 from app.models.user import User
@@ -14,7 +15,12 @@ from app.models.plan import Plan
 from app.models.admin_action_log import AdminActionLog
 from app.models.daily_usage import DailyUsage
 from app.services import usage_service, plan_service, provider_setting_service
-from app.schemas.provider_setting import ProviderSettingOut, ProviderSettingUpdate
+from app.schemas.provider_setting import (
+    ProviderSettingOut,
+    ProviderSettingUpdate,
+    WebCrawlProviderConfig,
+    WebCrawlProviderConfigUpdate,
+)
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import desc
@@ -215,6 +221,81 @@ def update_provider(
         mode=payload.mode,
     )
     return setting
+
+
+def _web_crawl_defaults():
+    settings = get_settings()
+    return {
+        "allowlist": [],
+        "rate_per_minute": settings.crawl_search_rate_per_minute,
+        "concurrency": settings.crawl_search_concurrency,
+        "max_sources": settings.crawl_search_max_sources,
+        "min_results": settings.crawl_search_min_results,
+    }
+
+
+@router.get("/providers/web-crawl", response_model=WebCrawlProviderConfig)
+def get_web_crawl_config(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    provider_setting_service.ensure_defaults(db)
+    setting = provider_setting_service.get_setting(db, "web_crawl_on_demand")
+    if not setting:
+        setting = provider_setting_service.update_setting(db, key="web_crawl_on_demand")
+    defaults = _web_crawl_defaults()
+    cfg = setting.settings_json or {}
+    merged = {
+        **defaults,
+        **{k: v for k, v in cfg.items() if v is not None},
+    }
+    return WebCrawlProviderConfig(
+        enabled=setting.enabled,
+        priority=setting.priority,
+        allowlist=merged.get("allowlist") or [],
+        rate_per_minute=int(merged.get("rate_per_minute") or defaults["rate_per_minute"]),
+        concurrency=int(merged.get("concurrency") or defaults["concurrency"]),
+        max_sources=int(merged.get("max_sources") or defaults["max_sources"]),
+        min_results=int(merged.get("min_results") or defaults["min_results"]),
+    )
+
+
+@router.patch("/providers/web-crawl", response_model=WebCrawlProviderConfig)
+def update_web_crawl_config(
+    payload: WebCrawlProviderConfigUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    provider_setting_service.ensure_defaults(db)
+    setting = provider_setting_service.get_setting(db, "web_crawl_on_demand")
+    if not setting:
+        setting = provider_setting_service.update_setting(db, key="web_crawl_on_demand")
+    cfg = setting.settings_json or {}
+    defaults = _web_crawl_defaults()
+    updated_cfg = {
+        "allowlist": payload.allowlist if payload.allowlist is not None else cfg.get("allowlist", defaults["allowlist"]),
+        "rate_per_minute": payload.rate_per_minute if payload.rate_per_minute is not None else cfg.get("rate_per_minute", defaults["rate_per_minute"]),
+        "concurrency": payload.concurrency if payload.concurrency is not None else cfg.get("concurrency", defaults["concurrency"]),
+        "max_sources": payload.max_sources if payload.max_sources is not None else cfg.get("max_sources", defaults["max_sources"]),
+        "min_results": payload.min_results if payload.min_results is not None else cfg.get("min_results", defaults["min_results"]),
+    }
+    setting = provider_setting_service.update_setting(
+        db,
+        key="web_crawl_on_demand",
+        enabled=payload.enabled if payload.enabled is not None else setting.enabled,
+        priority=payload.priority if payload.priority is not None else setting.priority,
+        settings_json=updated_cfg,
+    )
+    merged = {
+        **_web_crawl_defaults(),
+        **{k: v for k, v in (setting.settings_json or {}).items() if v is not None},
+    }
+    return WebCrawlProviderConfig(
+        enabled=setting.enabled,
+        priority=setting.priority,
+        allowlist=merged.get("allowlist") or [],
+        rate_per_minute=int(merged.get("rate_per_minute") or defaults["rate_per_minute"]),
+        concurrency=int(merged.get("concurrency") or defaults["concurrency"]),
+        max_sources=int(merged.get("max_sources") or defaults["max_sources"]),
+        min_results=int(merged.get("min_results") or defaults["min_results"]),
+    )
 
 
 @router.post("/providers/seed-defaults")

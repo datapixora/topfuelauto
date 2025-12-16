@@ -213,9 +213,17 @@ def search(
 
     settings = get_settings()
     enabled_keys = [k for k in provider_setting_service.get_enabled_providers(db, "search") if k != "copart_public"]
-    if settings.crawl_search_allowlist and "web_crawl_on_demand" not in enabled_keys:
+    web_crawl_setting = provider_setting_service.get_setting(db, "web_crawl_on_demand")
+    web_crawl_config = web_crawl_setting.settings_json if web_crawl_setting else {}
+    crawl_allowlist = (web_crawl_config.get("allowlist") if isinstance(web_crawl_config, dict) else None) or settings.crawl_search_allowlist
+    crawl_min_results = (
+        web_crawl_config.get("min_results")
+        if isinstance(web_crawl_config, dict) and web_crawl_config.get("min_results") is not None
+        else settings.crawl_search_min_results
+    )
+    if web_crawl_setting and web_crawl_setting.enabled and crawl_allowlist and "web_crawl_on_demand" not in enabled_keys:
         enabled_keys.append("web_crawl_on_demand")
-    providers = get_active_providers(settings, allowed_keys=enabled_keys)
+    providers = get_active_providers(settings, allowed_keys=enabled_keys, config_map={"web_crawl_on_demand": web_crawl_config})
     if not providers:
         # fail-safe fallback to marketcheck instantiation
         providers = get_active_providers(settings, allowed_keys=["marketcheck"])
@@ -399,8 +407,8 @@ def search(
 
     latency_ms = int((time.time() - start_ts) * 1000)
 
-    crawl_enabled = bool(settings.crawl_search_allowlist)
-    should_enqueue_crawl = crawl_enabled and (deep or total < settings.crawl_search_min_results)
+    crawl_enabled = bool(crawl_allowlist)
+    should_enqueue_crawl = crawl_enabled and (deep or total < crawl_min_results)
 
     if should_enqueue_crawl:
         try:

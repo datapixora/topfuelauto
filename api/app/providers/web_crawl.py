@@ -64,9 +64,10 @@ class WebCrawlOnDemandProvider:
     supports_free_text = True
     requires_structured = False
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, config: Dict[str, Any] | None = None):
         self.settings = settings
-        self.enabled = bool(settings.crawl_search_allowlist)
+        self.config = config or {}
+        self.enabled = bool(self._allowlist())
 
     def search_listings(
         self,
@@ -91,7 +92,7 @@ class WebCrawlOnDemandProvider:
 
     # ---------- Helpers used by the Celery task ----------
     def _rate_limiter(self):
-        per_minute = max(1, self.settings.crawl_search_rate_per_minute)
+        per_minute = max(1, self._config_value("rate_per_minute", self.settings.crawl_search_rate_per_minute))
         window_ms = 60_000
         state: dict[str, _DomainLimit] = {}
 
@@ -118,8 +119,8 @@ class WebCrawlOnDemandProvider:
 
         allow = self._rate_limiter()
         results: list[dict[str, Any]] = []
-        templates = self.settings.crawl_search_allowlist
-        max_sources = max(1, self.settings.crawl_search_max_sources)
+        templates = self._allowlist()
+        max_sources = max(1, self._config_value("max_sources", self.settings.crawl_search_max_sources))
 
         for template in templates[:max_sources]:
             template = template.strip()
@@ -199,4 +200,14 @@ class WebCrawlOnDemandProvider:
             "url": url,
             "fetched_at": datetime.utcnow(),
         }
+
+    def _config_value(self, key: str, default: Any):
+        return self.config.get(key, default)
+
+    def _allowlist(self) -> list[str]:
+        # Prefer DB config; fallback to env allowlist
+        allow = self.config.get("allowlist")
+        if allow is not None:
+            return allow
+        return self.settings.crawl_search_allowlist or []
 

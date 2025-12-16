@@ -4,7 +4,7 @@ from app.workers.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.providers.web_crawl import WebCrawlOnDemandProvider
-from app.services import search_job_service
+from app.services import search_job_service, provider_setting_service
 from app.models.search_job import SearchJob
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,9 @@ def run_on_demand_crawl(job_id: int):
             return "missing"
 
         settings = get_settings()
-        provider = WebCrawlOnDemandProvider(settings)
+        crawl_setting = provider_setting_service.get_setting(db, "web_crawl_on_demand")
+        crawl_config = crawl_setting.settings_json if crawl_setting else {}
+        provider = WebCrawlOnDemandProvider(settings, config=crawl_config)
 
         search_job_service.set_status(db, job, "running")
 

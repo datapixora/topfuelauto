@@ -1,5 +1,6 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
 
@@ -13,5 +14,6 @@ class ProviderSetting(Base):
     enabled = Column(Boolean, nullable=False, default=True)
     priority = Column(Integer, nullable=False, default=100)
     mode = Column(String(16), nullable=False, default="both")  # search | assist | both
+    settings_json = Column(JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)

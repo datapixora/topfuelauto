@@ -10,6 +10,7 @@ import {
   AlertMatch,
   NotificationItem,
   SearchJobResponse,
+  WebCrawlProviderConfig,
 } from "./types";
 
 const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
@@ -308,12 +309,12 @@ export async function markAllNotificationsRead() {
 
 // Admin providers
 export async function listProviderSettings() {
-  return apiGet<{ key: string; enabled: boolean; priority: number; mode: string }[]>("/admin/providers");
+  return apiGet<{ key: string; enabled: boolean; priority: number; mode: string; settings_json?: any }[]>("/admin/providers");
 }
 
 export async function updateProviderSetting(
   key: string,
-  payload: { enabled?: boolean; priority?: number; mode?: string }
+  payload: { enabled?: boolean; priority?: number; mode?: string; settings_json?: any }
 ) {
   const res = await authFetch(`/admin/providers/${encodeURIComponent(key)}`, {
     method: "PATCH",
@@ -332,6 +333,25 @@ export async function seedProviderDefaults() {
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Seed failed (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
+export async function getWebCrawlProviderConfig(): Promise<WebCrawlProviderConfig> {
+  return apiGet<WebCrawlProviderConfig>("/admin/providers/web-crawl");
+}
+
+export async function updateWebCrawlProviderConfig(
+  payload: Partial<WebCrawlProviderConfig>
+): Promise<WebCrawlProviderConfig> {
+  const res = await authFetch("/admin/providers/web-crawl", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Update failed (${res.status}): ${txt}`);
   }
   return res.json();
 }

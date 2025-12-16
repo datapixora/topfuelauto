@@ -103,6 +103,16 @@ export type SearchJobResponse = {
   results: SearchJobResult[];
 };
 
+export type WebCrawlProviderConfig = {
+  enabled: boolean;
+  priority: number;
+  allowlist: string[];
+  rate_per_minute: number;
+  concurrency: number;
+  max_sources: number;
+  min_results: number;
+};
+
 export type Plan = {
   id: number;
   key: string;
