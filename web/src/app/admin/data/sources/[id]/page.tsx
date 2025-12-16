@@ -127,6 +127,8 @@ export default function SourceDetailPage() {
         return "text-red-400";
       case "paused":
         return "text-yellow-400";
+      case "blocked":
+        return "text-orange-400";
       default:
         return "text-slate-400";
     }

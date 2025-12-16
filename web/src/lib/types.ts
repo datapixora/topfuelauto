@@ -246,7 +246,7 @@ export type DataSource = {
 export type DataRun = {
   id: number;
   source_id: number;
-  status: "queued" | "running" | "succeeded" | "failed" | "paused";
+  status: "queued" | "running" | "succeeded" | "failed" | "paused" | "blocked";
   started_at?: string | null;
   finished_at?: string | null;
   pages_planned: number;

@@ -74,7 +74,7 @@ class AdminSourceOut(AdminSourceBase):
 
 class AdminRunBase(BaseModel):
     source_id: int
-    status: str = Field(default="queued", pattern="^(queued|running|succeeded|failed|paused)$")
+    status: str = Field(default="queued", pattern="^(queued|running|succeeded|failed|paused|blocked)$")
 
 
 class AdminRunCreate(AdminRunBase):
@@ -82,7 +82,7 @@ class AdminRunCreate(AdminRunBase):
 
 
 class AdminRunUpdate(BaseModel):
-    status: Optional[str] = Field(None, pattern="^(queued|running|succeeded|failed|paused)$")
+    status: Optional[str] = Field(None, pattern="^(queued|running|succeeded|failed|paused|blocked)$")
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     pages_planned: Optional[int] = None

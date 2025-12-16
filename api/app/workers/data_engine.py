@@ -4,7 +4,7 @@ Data Engine Celery tasks for controlled scraping/importing.
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import httpx
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,43 @@ from app.schemas import data_engine as schemas
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+class BlockedResponseError(Exception):
+    """Raised when a page clearly indicates bot-block/Incapsula/Imperva."""
+
+
+def _detect_block(response: httpx.Response, html: str) -> Tuple[bool, Optional[str]]:
+    """
+    Lightweight bot-block detection (no bypass).
+    Conditions:
+      - Contains '_Incapsula_Resource' or 'imperva'
+      - meta robots noindex with tiny body
+      - html length < 1000
+    """
+    html_len = len(html or "")
+    lower = html.lower() if html else ""
+
+    if "_incapsula_resource" in lower:
+        return True, "incapsula"
+    if "imperva" in lower:
+        return True, "imperva"
+    if "noindex" in lower and html_len < 1200:
+        return True, "robots_noindex"
+    if html_len < 1000:
+        return True, "html_too_short"
+
+    return False, None
+
+
+def _diagnostic_payload(response: httpx.Response, blocked: bool, block_reason: Optional[str]) -> Dict[str, Any]:
+    return {
+        "status_code": response.status_code,
+        "final_url": str(response.url),
+        "html_len": len(response.text or ""),
+        "blocked": blocked,
+        "block_reason": block_reason,
+    }
 
 
 @celery_app.task(name="app.workers.data_engine.run_source_scrape")
@@ -61,6 +98,39 @@ def run_source_scrape(source_id: int) -> dict:
         try:
             # Execute scraping
             result = _execute_scrape(db, source, run)
+
+            if result.get("blocked"):
+                # Mark as blocked (not a success)
+                service.update_run(
+                    db,
+                    run.id,
+                    schemas.AdminRunUpdate(
+                        status="blocked",
+                        finished_at=datetime.utcnow(),
+                        pages_done=result.get("pages_done", 0),
+                        items_found=result.get("items_found", 0),
+                        items_staged=result.get("items_staged", 0),
+                        error_summary="Blocked by bot protection",
+                        debug_json=result.get("debug_info"),
+                    ),
+                )
+                source.failure_count += 1
+                source.disabled_reason = "Blocked by bot protection (Incapsula/Imperva)"
+                backoff_minutes = max(source.schedule_minutes * 4, 180)
+                source.next_run_at = datetime.utcnow() + timedelta(minutes=backoff_minutes)
+                source.last_run_at = datetime.utcnow()
+                db.commit()
+
+                logger.warning(
+                    f"Scrape run {run.id} blocked by bot protection: {result.get('block_reason')}"
+                )
+
+                return {
+                    "run_id": run.id,
+                    "status": "blocked",
+                    "block_reason": result.get("block_reason"),
+                    "diagnostics": result.get("diagnostics"),
+                }
 
             # Update run as succeeded
             service.update_run(
@@ -209,9 +279,28 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
 
                 pages_done += 1
 
+                # Bot-block detection
+                html = response.text
+                blocked, block_reason = _detect_block(response, html)
+                diagnostics = _diagnostic_payload(response, blocked, block_reason)
+                debug_info.setdefault("pages", []).append(
+                    {"page": page_num, **diagnostics}
+                )
+                if blocked:
+                    logger.warning(f"Blocked by bot protection on page {page_num}: {block_reason}")
+                    return {
+                        "blocked": True,
+                        "block_reason": block_reason,
+                        "pages_done": pages_done,
+                        "items_found": items_found,
+                        "items_staged": items_staged,
+                        "debug_info": {**debug_info, "block_reason": block_reason},
+                        "diagnostics": diagnostics,
+                    }
+
                 # Parse items from page (placeholder - actual parsing depends on source)
                 # For STEP 5, we'll just create a simple parser
-                page_items = _parse_list_page(response.text, source.key)
+                page_items = _parse_list_page(html, source.key)
                 items_found += len(page_items)
 
                 # Store items in staged_listings (with auto-merge check)
