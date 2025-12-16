@@ -177,10 +177,14 @@ export default function NewSourcePage() {
                 type="url"
                 required
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm font-mono"
-                placeholder="https://www.copart.com/lotSearchResults/"
+                placeholder="https://www.example.com/listings"
                 value={formData.base_url}
                 onChange={(e) => setFormData({ ...formData, base_url: e.target.value })}
               />
+              <p className="text-xs text-slate-500 mt-1">
+                The scraper will append <code className="text-slate-400">?page=1</code>, <code className="text-slate-400">?page=2</code>, etc. for pagination.
+                Include existing query params if needed (e.g., <code className="text-slate-400">https://site.com/cars?sort=date</code> becomes <code className="text-slate-400">?sort=date&page=1</code>)
+              </p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">

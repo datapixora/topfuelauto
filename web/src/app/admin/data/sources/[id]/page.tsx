@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { Button } from "../../../../../components/ui/button";
-import { getDataSource, listSourceRuns, toggleDataSource, deleteDataSource } from "../../../../../lib/api";
+import { getDataSource, listSourceRuns, toggleDataSource, deleteDataSource, runDataSource } from "../../../../../lib/api";
 import { DataSource, DataRun } from "../../../../../lib/types";
 
 export default function SourceDetailPage() {
@@ -55,6 +55,22 @@ export default function SourceDetailPage() {
     try {
       await deleteDataSource(sourceId);
       router.push("/admin/data/sources");
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const handleRun = async () => {
+    if (!source) return;
+    if (!source.is_enabled) {
+      setError("Cannot run a disabled source. Enable it first.");
+      return;
+    }
+    try {
+      setError(null);
+      await runDataSource(sourceId);
+      // Reload to see the new run
+      setTimeout(() => loadData(), 1000);
     } catch (e: any) {
       setError(e.message);
     }
@@ -116,6 +132,13 @@ export default function SourceDetailPage() {
           <div className="text-xs text-slate-500 font-mono mt-1">{source.key}</div>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="primary"
+            onClick={handleRun}
+            disabled={!source.is_enabled}
+          >
+            Run Now
+          </Button>
           <Button variant="ghost" onClick={handleToggle}>
             {source.is_enabled ? "Disable" : "Enable"}
           </Button>

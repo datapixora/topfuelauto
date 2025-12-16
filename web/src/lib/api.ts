@@ -437,6 +437,10 @@ export async function toggleDataSource(sourceId: number) {
   return apiPost(`/admin/data/sources/${sourceId}/toggle`, {});
 }
 
+export async function runDataSource(sourceId: number) {
+  return apiPost(`/admin/data/sources/${sourceId}/run`, {});
+}
+
 export async function listSourceRuns(sourceId: number) {
   return apiGet<any[]>(`/admin/data/sources/${sourceId}/runs`);
 }

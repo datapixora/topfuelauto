@@ -188,8 +188,9 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
         # Fetch pages with pagination
         for page_num in range(1, source.max_pages_per_run + 1):
             try:
-                # Build page URL (simple pagination for now)
-                page_url = f"{source.base_url}?page={page_num}"
+                # Build page URL with proper query param handling
+                separator = "&" if "?" in source.base_url else "?"
+                page_url = f"{source.base_url}{separator}page={page_num}"
 
                 logger.info(f"Fetching page {page_num}/{source.max_pages_per_run}: {page_url}")
 
