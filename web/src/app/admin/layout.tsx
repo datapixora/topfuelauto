@@ -9,6 +9,7 @@ const links = [
   { href: "/admin/subscriptions", label: "Subscriptions" },
   { href: "/admin/search-analytics", label: "Search Analytics" },
   { href: "/admin/providers", label: "Providers" },
+  { href: "/admin/data/sources", label: "Data Engine" },
 ];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
