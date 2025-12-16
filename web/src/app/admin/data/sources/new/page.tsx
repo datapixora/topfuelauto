@@ -356,7 +356,7 @@ export default function NewSourcePage() {
                 <div>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     onClick={handleTestProxy}
                     disabled={testingProxy || !formData.proxy_url}
                   >
@@ -384,7 +384,7 @@ export default function NewSourcePage() {
           <Button type="submit" disabled={loading}>
             {loading ? "Creating..." : "Create Source"}
           </Button>
-          <Button type="button" variant="outline" onClick={() => router.back()}>
+          <Button type="button" variant="ghost" onClick={() => router.back()}>
             Cancel
           </Button>
         </div>

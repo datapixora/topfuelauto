@@ -116,10 +116,10 @@ export default function SourceDetailPage() {
           <div className="text-xs text-slate-500 font-mono mt-1">{source.key}</div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleToggle}>
+          <Button variant="ghost" onClick={handleToggle}>
             {source.is_enabled ? "Disable" : "Enable"}
           </Button>
-          <Button variant="outline" className="text-red-400 hover:text-red-300" onClick={handleDelete}>
+          <Button variant="ghost" className="text-red-400 hover:text-red-300" onClick={handleDelete}>
             Delete Source
           </Button>
         </div>
