@@ -100,6 +100,34 @@ def toggle_source(
     return db_source
 
 
+@router.post("/sources/{source_id}/run")
+def trigger_source_run(
+    source_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Manually trigger a scraping run for this source (enqueues Celery task).
+    Returns task_id for tracking.
+    """
+    db_source = service.get_source(db, source_id)
+    if not db_source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    if not db_source.is_enabled:
+        raise HTTPException(status_code=400, detail="Source is disabled")
+
+    # Enqueue Celery task
+    from app.workers.data_engine import run_source_scrape
+    task = run_source_scrape.delay(source_id)
+
+    return {
+        "task_id": task.id,
+        "source_id": source_id,
+        "message": "Scraping task enqueued"
+    }
+
+
 @router.get("/sources/{source_id}/runs", response_model=List[schemas.AdminRunOut])
 def list_source_runs(
     source_id: int,

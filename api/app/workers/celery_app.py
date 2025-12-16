@@ -20,6 +20,11 @@ celery_app.conf.beat_schedule = {
         "schedule": 150,
         "args": (),
     },
+    "data-engine-enqueue": {
+        "task": "app.workers.data_engine.enqueue_due_sources",
+        "schedule": 180,  # Check every 3 minutes
+        "args": (),
+    },
 }
 
 celery_app.conf.timezone = "UTC"
