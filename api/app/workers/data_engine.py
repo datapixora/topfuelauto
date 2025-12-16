@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db_context
 from app.services import data_engine_service as service
 from app.services import crypto_service
+from app.schemas import data_engine as schemas
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ def run_source_scrape(source_id: int) -> dict:
         # Create run record
         run = service.create_run(
             db,
-            service.AdminRunCreate(
+            schemas.AdminRunCreate(
                 source_id=source_id,
                 status="running",
                 started_at=datetime.utcnow(),
@@ -65,7 +66,7 @@ def run_source_scrape(source_id: int) -> dict:
             service.update_run(
                 db,
                 run.id,
-                service.AdminRunUpdate(
+                schemas.AdminRunUpdate(
                     status="succeeded",
                     finished_at=datetime.utcnow(),
                     pages_done=result["pages_done"],
@@ -101,7 +102,7 @@ def run_source_scrape(source_id: int) -> dict:
             service.update_run(
                 db,
                 run.id,
-                service.AdminRunUpdate(
+                schemas.AdminRunUpdate(
                     status="failed",
                     finished_at=datetime.utcnow(),
                     error_summary=str(e)[:500],
