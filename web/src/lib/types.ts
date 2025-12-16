@@ -207,3 +207,79 @@ export type NotificationItem = {
   is_read: boolean;
   created_at?: string | null;
 };
+
+// ============================================================================
+// Data Engine Types
+// ============================================================================
+
+export type DataSource = {
+  id: number;
+  key: string;
+  name: string;
+  base_url: string;
+  is_enabled: boolean;
+  mode: "list_only" | "follow_details";
+  schedule_minutes: number;
+  max_items_per_run: number;
+  max_pages_per_run: number;
+  rate_per_minute: number;
+  concurrency: number;
+  timeout_seconds: number;
+  retry_count: number;
+  settings_json?: Record<string, any> | null;
+  failure_count: number;
+  disabled_reason?: string | null;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DataRun = {
+  id: number;
+  source_id: number;
+  status: "queued" | "running" | "succeeded" | "failed" | "paused";
+  started_at?: string | null;
+  finished_at?: string | null;
+  pages_planned: number;
+  pages_done: number;
+  items_found: number;
+  items_staged: number;
+  error_summary?: string | null;
+  debug_json?: Record<string, any> | null;
+  created_at: string;
+};
+
+export type StagedListingAttribute = {
+  id: number;
+  staged_listing_id: number;
+  key: string;
+  value_text?: string | null;
+  value_num?: number | null;
+  value_bool?: boolean | null;
+  unit?: string | null;
+  created_at: string;
+};
+
+export type StagedListing = {
+  id: number;
+  run_id: number;
+  source_key: string;
+  source_listing_id?: string | null;
+  canonical_url: string;
+  title?: string | null;
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  price_amount?: number | null;
+  currency: string;
+  odometer_value?: number | null;
+  location?: string | null;
+  listed_at?: string | null;
+  sale_datetime?: string | null;
+  fetched_at: string;
+  status: "active" | "ended" | "unknown";
+  created_at: string;
+  updated_at: string;
+  attributes: StagedListingAttribute[];
+};

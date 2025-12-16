@@ -392,3 +392,67 @@ export async function decodeVin(vin: string) {
 }
 
 const inFlight = new Map<string, Promise<any>>();
+
+// ============================================================================
+// Data Engine API
+// ============================================================================
+
+export async function listDataSources(enabledOnly = false) {
+  const qs = enabledOnly ? "?enabled_only=true" : "";
+  return apiGet<any[]>(`/admin/data/sources${qs}`);
+}
+
+export async function getDataSource(sourceId: number) {
+  return apiGet<any>(`/admin/data/sources/${sourceId}`);
+}
+
+export async function createDataSource(payload: any) {
+  return apiPost("/admin/data/sources", payload);
+}
+
+export async function updateDataSource(sourceId: number, payload: any) {
+  const res = await authFetch(`/admin/data/sources/${sourceId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Update failed (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
+export async function deleteDataSource(sourceId: number) {
+  const res = await authFetch(`/admin/data/sources/${sourceId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Delete failed (${res.status}): ${txt}`);
+  }
+}
+
+export async function toggleDataSource(sourceId: number) {
+  return apiPost(`/admin/data/sources/${sourceId}/toggle`, {});
+}
+
+export async function listSourceRuns(sourceId: number) {
+  return apiGet<any[]>(`/admin/data/sources/${sourceId}/runs`);
+}
+
+export async function getDataRun(runId: number) {
+  return apiGet<any>(`/admin/data/runs/${runId}`);
+}
+
+export async function listRunItems(runId: number) {
+  return apiGet<any[]>(`/admin/data/runs/${runId}/items`);
+}
+
+export async function listStagedListings() {
+  return apiGet<any[]>("/admin/data/staged");
+}
+
+export async function getStagedListing(listingId: number) {
+  return apiGet<any>(`/admin/data/staged/${listingId}`);
+}
