@@ -16,3 +16,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def get_db_context():
+    """
+    Context manager for database sessions in Celery tasks.
+    Use this instead of get_db() outside of FastAPI request context.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
