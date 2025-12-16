@@ -103,6 +103,7 @@
 92. [x] SmartProxy hardening: rotate session-based proxy credentials + user agents, cache signatures 10m to reduce hits, and keep bot-block handling (no bypass).
 93. [x] Fix proxy config and classify proxy failures: env-driven SmartProxy URL, masked creds, proxy health check (ipify), proxy_failed status with cooldown, UI badges.
 94. [x] Admin Proxies tab + DB-managed pool: CRUD + health checks, encrypted passwords, proxy-weighted selection in Data Engine, run-level proxy diagnostics, UI pool metrics.
+95. [x] Fix admin overflow for long URLs/JSON (base URL break, copy + toggle, settings JSON container).
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)

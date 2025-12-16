@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { Button } from "../../../../../components/ui/button";
@@ -24,6 +24,9 @@ export default function SourceDetailPage() {
     require_price_or_url: true,
     min_confidence_score: "" as number | "" | null,
   });
+
+  const [showFullBaseUrl, setShowFullBaseUrl] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
 
   const loadData = async () => {
     setLoading(true);
@@ -139,14 +142,27 @@ export default function SourceDetailPage() {
     }
   };
 
-  const proxyPool = (() => {
+  const proxyPool = useMemo(() => {
     const enabled = proxies.filter((p) => p.is_enabled);
     return {
       count: enabled.length,
       weight: enabled.reduce((acc, p) => acc + (p.weight || 0), 0),
       lastExit: enabled.find((p) => p.last_exit_ip)?.last_exit_ip,
     };
-  })();
+  }, [proxies]);
+
+  const baseUrlDisplay = useMemo(() => {
+    if (!source?.base_url) return "N/A";
+    if (showFullBaseUrl) return source.base_url;
+    return source.base_url.length > 100 ? `${source.base_url.slice(0, 100)}…` : source.base_url;
+  }, [source?.base_url, showFullBaseUrl]);
+
+  const copyBaseUrl = async () => {
+    if (!source?.base_url || !navigator?.clipboard) return;
+    await navigator.clipboard.writeText(source.base_url);
+    setCopyStatus("copied");
+    setTimeout(() => setCopyStatus("idle"), 2000);
+  };
 
   if (loading) {
     return <div className="text-slate-400">Loading source details...</div>;
@@ -211,10 +227,28 @@ export default function SourceDetailPage() {
           <CardHeader>
             <CardTitle>Configuration</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
+          <CardContent className="space-y-2 text-sm min-w-0">
+            <div className="flex justify-between items-start gap-2 min-w-0">
               <span className="text-slate-400">Base URL:</span>
-              <span className="font-mono text-xs">{source.base_url}</span>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 min-w-0">
+                <span className="font-mono text-xs break-words min-w-0">{baseUrlDisplay}</span>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    className="text-xs px-2 py-1"
+                    onClick={copyBaseUrl}
+                  >
+                    {copyStatus === "copied" ? "Copied" : "Copy"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-xs px-2 py-1"
+                    onClick={() => setShowFullBaseUrl((prev) => !prev)}
+                  >
+                    {showFullBaseUrl ? "Hide" : "Show full"}
+                  </Button>
+                </div>
+              </div>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Mode:</span>
@@ -255,7 +289,7 @@ export default function SourceDetailPage() {
           <CardHeader>
             <CardTitle>Status</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
+          <CardContent className="space-y-2 text-sm min-w-0">
             <div className="flex justify-between">
               <span className="text-slate-400">Last run:</span>
               <span className="font-medium text-xs">{formatDate(source.last_run_at)}</span>
@@ -385,10 +419,12 @@ export default function SourceDetailPage() {
           <CardHeader>
             <CardTitle>Settings JSON</CardTitle>
           </CardHeader>
-          <CardContent>
-            <pre className="text-xs bg-slate-900 p-3 rounded overflow-x-auto">
-              {JSON.stringify(source.settings_json, null, 2)}
-            </pre>
+          <CardContent className="min-w-0">
+            <div className="max-h-[320px] overflow-auto rounded-md border border-slate-800 bg-slate-950 p-3 text-xs whitespace-pre-wrap break-words">
+              <pre className="m-0">
+                {JSON.stringify(source.settings_json, null, 2)}
+              </pre>
+            </div>
           </CardContent>
         </Card>
       )}
