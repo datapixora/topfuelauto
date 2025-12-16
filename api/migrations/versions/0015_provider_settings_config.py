@@ -26,3 +26,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_column("provider_settings", "settings_json")
 
+

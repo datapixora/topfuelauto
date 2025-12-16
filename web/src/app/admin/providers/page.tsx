@@ -44,7 +44,7 @@ export default function AdminProviders() {
       setProviders(rows || []);
       if (crawl) {
         setCrawlConfig(crawl);
-        setCrawlAllowlistText(crawl.allowlist.join("\n"));
+        setCrawlAllowlistText((crawl.allowlist || []).join("\n"));
       }
     } catch (e: any) {
       setError(e.message);
@@ -111,7 +111,7 @@ export default function AdminProviders() {
         allowlist: parseAllowlist(crawlAllowlistText),
       });
       setCrawlConfig(updated);
-      setCrawlAllowlistText(updated.allowlist.join("\n"));
+      setCrawlAllowlistText((updated.allowlist || []).join("\n"));
     } catch (e: any) {
       setError(e.message);
     } finally {
