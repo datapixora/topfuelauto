@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 import httpx
+import random
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db_context
@@ -224,6 +225,14 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
     # Configure HTTP client with proxy and timeouts
     proxy_used = False
 
+    # Lightweight UA rotation
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    ]
+
     client_kwargs = {
         "timeout": httpx.Timeout(source.timeout_seconds),
         "follow_redirects": True,
@@ -232,13 +241,15 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
     if settings_json.get("proxy_enabled") and settings_json.get("proxy_url"):
         proxy_url = settings_json["proxy_url"]
 
-        # Add auth to proxy URL if present
+        # Add auth to proxy URL if present; add rotating session id for SmartProxy-style gateways
         if settings_json.get("proxy_username") and settings_json.get("proxy_password"):
             from urllib.parse import urlparse, urlunparse
             parsed = urlparse(proxy_url)
+            session_id = random.randint(1000, 9999)
+            proxy_user = f"{settings_json['proxy_username']}-session-{session_id}"
             proxy_url = urlunparse((
                 parsed.scheme,
-                f"{settings_json['proxy_username']}:{settings_json['proxy_password']}@{parsed.netloc}",
+                f"{proxy_user}:{settings_json['proxy_password']}@{parsed.netloc}",
                 parsed.path,
                 parsed.params,
                 parsed.query,
@@ -293,7 +304,13 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
 
                     # Fetch page
                     start_time = time.time()
-                    response = client.get(page_url)
+                    headers = {
+                        "User-Agent": random.choice(user_agents),
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.5",
+                        "Cache-Control": "max-age=0",
+                    }
+                    response = client.get(page_url, headers=headers)
                     response.raise_for_status()
                     fetch_time = time.time() - start_time
 

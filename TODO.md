@@ -100,6 +100,7 @@
 89. [x] Add on-demand crawl search provider + Celery job + UI polling.
 90. [x] Data Engine: detect Incapsula/Imperva blocks (short HTML, _Incapsula_Resource, robots noindex) and mark runs BLOCKED with diagnostics; plan to use legal provider/API for Copart or keep source disabled for MVP.
 91. [x] Data Engine: add block diagnostics (status_code, final_url, html_len, proxy_used), per-source cooldown (auto-pause 6h after 2 blocks/30m), cache duplicate signatures to avoid repeat hits, surface cooldown/last block in admin UI.
+92. [x] SmartProxy hardening: rotate session-based proxy credentials + user agents, cache signatures 10m to reduce hits, and keep bot-block handling (no bypass).
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
