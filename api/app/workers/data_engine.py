@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any, Tuple
 import httpx
 import random
 from sqlalchemy.orm import Session
+import os
 
 from app.core.database import get_db_context
 from app.services import data_engine_service as service
@@ -54,6 +55,47 @@ def _diagnostic_payload(response: httpx.Response, blocked: bool, block_reason: O
         "block_reason": block_reason,
         "proxy_used": proxy_used,
     }
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    prefix = value.split("-", 1)[0][:4]
+    return f"{prefix}***"
+
+
+def _build_proxy_from_env() -> Tuple[Optional[str], Dict[str, Any]]:
+    host = os.getenv("PROXY_HOST", "proxy.smartproxy.net")
+    port = os.getenv("PROXY_PORT", "3120")
+    user = os.getenv("PROXY_USERNAME")
+    pwd = os.getenv("PROXY_PASSWORD")
+    scheme = os.getenv("PROXY_SCHEME", "http")
+
+    if not user or not pwd:
+        return None, {}
+
+    proxy_url = f"{scheme}://{user}:{pwd}@{host}:{port}"
+    meta = {
+        "proxy_host": host,
+        "proxy_port": port,
+        "proxy_username_masked": _mask_secret(user),
+    }
+    return proxy_url, meta
+
+
+def check_proxy(proxy_url: str) -> Dict[str, Any]:
+    """Call ipify via proxy to sanity check."""
+    try:
+        with httpx.Client(proxy=proxy_url, timeout=10.0, verify=False) as client:
+            resp = client.get("https://api.ipify.org", params={"format": "json"})
+            return {
+                "ok": resp.status_code == 200,
+                "status_code": resp.status_code,
+                "body_len": len(resp.text or ""),
+                "ip": resp.json().get("ip") if resp.headers.get("content-type", "").startswith("application/json") else None,
+            }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @celery_app.task(name="app.workers.data_engine.run_source_scrape")
@@ -128,6 +170,35 @@ def run_source_scrape(source_id: int) -> dict:
                     "run_id": run.id,
                     "status": "blocked",
                     "block_reason": result.get("block_reason"),
+                    "diagnostics": result.get("diagnostics"),
+                }
+
+            if result.get("proxy_failed"):
+                service.update_run(
+                    db,
+                    run.id,
+                    schemas.AdminRunUpdate(
+                        status="proxy_failed",
+                        finished_at=datetime.utcnow(),
+                        pages_done=result.get("pages_done", 0),
+                        items_found=result.get("items_found", 0),
+                        items_staged=result.get("items_staged", 0),
+                        error_summary=result.get("error")[:500] if result.get("error") else "Proxy failed",
+                        debug_json=result.get("debug_info"),
+                    ),
+                )
+                source.last_run_at = datetime.utcnow()
+                service.record_proxy_failure(db, source, result.get("error") or "proxy error")
+                db.commit()
+
+                logger.warning(
+                    f"Scrape run {run.id} failed due to proxy: {result.get('error')}"
+                )
+
+                return {
+                    "run_id": run.id,
+                    "status": "proxy_failed",
+                    "error": result.get("error"),
                     "diagnostics": result.get("diagnostics"),
                 }
 
@@ -224,6 +295,7 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
 
     # Configure HTTP client with proxy and timeouts
     proxy_used = False
+    proxy_meta = {}
 
     # Lightweight UA rotation
     user_agents = [
@@ -238,7 +310,13 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
         "follow_redirects": True,
     }
 
-    if settings_json.get("proxy_enabled") and settings_json.get("proxy_url"):
+    proxy_url = None
+    # Prefer env-provided SmartProxy
+    env_proxy_url, env_meta = _build_proxy_from_env()
+    if env_proxy_url:
+        proxy_url = env_proxy_url
+        proxy_meta = env_meta
+    elif settings_json.get("proxy_enabled") and settings_json.get("proxy_url"):
         proxy_url = settings_json["proxy_url"]
 
         # Add auth to proxy URL if present; add rotating session id for SmartProxy-style gateways
@@ -255,13 +333,20 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
                 parsed.query,
                 parsed.fragment
             ))
+            proxy_meta = {
+                "proxy_host": parsed.hostname,
+                "proxy_port": parsed.port,
+                "proxy_username_masked": _mask_secret(proxy_user),
+            }
 
-        client_kwargs["proxies"] = {
-            "http://": proxy_url,
-            "https://": proxy_url,
-        }
+    if proxy_url:
+        client_kwargs["proxy"] = proxy_url
         proxy_used = True
         debug_info["proxy_used"] = True
+        debug_info["proxy"] = {k: v for k, v in proxy_meta.items() if v}
+
+        if (settings_json.get("debug_proxy_check") or os.getenv("DATA_ENGINE_DEBUG_PROXY") == "1"):
+            debug_info["proxy_check"] = check_proxy(proxy_url)
 
     # Rate limiting setup
     requests_per_second = source.rate_per_minute / 60.0
@@ -392,6 +477,26 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
                     break
                 else:
                     raise
+            except httpx.ProxyError as e:
+                logger.error(f"Proxy error on page {page_num}: {e}")
+                diagnostics = {
+                    "proxy_used": proxy_used,
+                    "proxy_host": proxy_meta.get("proxy_host"),
+                    "proxy_port": proxy_meta.get("proxy_port"),
+                    "error": str(e),
+                }
+                debug_info.setdefault("pages", []).append(
+                    {"page": page_num, "proxy_failed": True, **diagnostics}
+                )
+                return {
+                    "proxy_failed": True,
+                    "error": str(e),
+                    "diagnostics": diagnostics,
+                    "pages_done": pages_done,
+                    "items_found": items_found,
+                    "items_staged": items_staged,
+                    "debug_info": debug_info,
+                }
             except Exception as e:
                 logger.error(f"Error fetching page {page_num}: {e}")
                 raise

@@ -129,6 +129,8 @@ export default function SourceDetailPage() {
         return "text-yellow-400";
       case "blocked":
         return "text-orange-400";
+      case "proxy_failed":
+        return "text-orange-300";
       default:
         return "text-slate-400";
     }

@@ -123,6 +123,11 @@ export default function DataSourcesPage() {
                     {source.last_blocked_at && ` @ ${formatDate(source.last_blocked_at)}`}
                   </div>
                 )}
+                {source.disabled_reason && (
+                  <div className="text-xs text-orange-200 mt-1">
+                    Last error: {source.disabled_reason}
+                  </div>
+                )}
                 {source.failure_count > 0 && (
                   <div className="flex justify-between text-red-400">
                     <span>Failures:</span>

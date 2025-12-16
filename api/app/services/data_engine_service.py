@@ -149,6 +149,35 @@ def record_block_event(
     db.add(source)
 
 
+def record_proxy_failure(
+    db: Session,
+    source: AdminSource,
+    error: str,
+    cooldown_minutes: int = 60,
+    threshold: int = 2,
+) -> None:
+    """Pause source if proxy failures repeat."""
+    now = datetime.utcnow()
+    source.failure_count += 1
+    source.last_block_reason = f"Proxy failure: {error}"
+    recent_failures = (
+        db.query(AdminRun)
+        .filter(
+            AdminRun.source_id == source.id,
+            AdminRun.status == "proxy_failed",
+            AdminRun.created_at >= now - timedelta(minutes=30),
+        )
+        .count()
+    )
+    if recent_failures >= threshold - 1:
+        source.cooldown_until = now + timedelta(minutes=cooldown_minutes)
+        source.next_run_at = source.cooldown_until
+        source.disabled_reason = f"Auto-paused after proxy failures until {source.cooldown_until.isoformat()}Z"
+    else:
+        source.next_run_at = now + timedelta(minutes=max(source.schedule_minutes * 2, 30))
+    db.add(source)
+
+
 def should_auto_merge(db: Session, source: Any, staged_listing: Any) -> tuple[bool, Optional[str]]:
     """
     Decide if a staged listing meets auto-approval criteria.

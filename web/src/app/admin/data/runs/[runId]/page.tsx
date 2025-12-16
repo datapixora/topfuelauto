@@ -55,6 +55,8 @@ export default function RunDetailPage() {
         return "bg-yellow-500";
       case "blocked":
         return "bg-orange-500";
+      case "proxy_failed":
+        return "bg-orange-300";
       default:
         return "bg-slate-600";
     }
