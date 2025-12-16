@@ -13,6 +13,9 @@ class ProxyPoolSummary(BaseModel):
     weight_sum: int
     last_exit_ip: Optional[str]
 
+    class Config:
+        from_attributes = True
+
 
 class ProxyOption(BaseModel):
     id: int
@@ -22,6 +25,9 @@ class ProxyOption(BaseModel):
     scheme: str
     last_check_status: Optional[str]
     last_exit_ip: Optional[str]
+
+    class Config:
+        from_attributes = True
 
 
 # ============================================================================
@@ -94,7 +100,7 @@ class AdminSourceOut(AdminSourceBase):
     proxy_pool_summary: Optional[ProxyPoolSummary] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ============================================================================
@@ -142,7 +148,7 @@ class AdminRunOut(AdminRunBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ============================================================================
@@ -167,7 +173,7 @@ class StagedListingAttributeOut(StagedListingAttributeBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ============================================================================
@@ -209,7 +215,7 @@ class StagedListingOut(StagedListingBase):
     attributes: List[StagedListingAttributeOut] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ============================================================================
@@ -234,7 +240,7 @@ class MergedListingAttributeOut(MergedListingAttributeBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ============================================================================
@@ -273,4 +279,4 @@ class MergedListingOut(MergedListingBase):
     attributes: List[MergedListingAttributeOut] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True
