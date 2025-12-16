@@ -127,24 +127,21 @@ export default function DataSourcesPage() {
               <div className="flex gap-2 pt-2 border-t border-slate-800">
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="flex-1"
+                  className="flex-1 text-xs"
                   onClick={() => router.push(`/admin/data/sources/${source.id}`)}
                 >
                   View
                 </Button>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="flex-1"
+                  className="flex-1 text-xs"
                   onClick={() => handleToggle(source.id)}
                 >
                   {source.is_enabled ? "Disable" : "Enable"}
                 </Button>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="text-red-400 hover:text-red-300"
+                  className="text-red-400 hover:text-red-300 text-xs"
                   onClick={() => handleDelete(source.id, source.name)}
                 >
                   Delete
