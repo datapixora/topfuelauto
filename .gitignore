@@ -28,3 +28,10 @@ Thumbs.db
 
 # VSCode
 .vscode/
+
+# Local junk
+*.bak
+*.backup
+test_write.txt
+write_assist.js
+
