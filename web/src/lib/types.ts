@@ -78,6 +78,29 @@ export type SearchResponse = {
   page_size: number;
   sources: SearchSource[];
   quota?: QuotaInfo | null;
+  status?: string;
+  job_id?: number | null;
+  message?: string | null;
+};
+
+export type SearchJobResult = {
+  title: string;
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  price?: number | null;
+  location?: string | null;
+  source_domain: string;
+  url: string;
+  fetched_at: string;
+};
+
+export type SearchJobResponse = {
+  job_id: number;
+  status: string;
+  result_count?: number | null;
+  error?: string | null;
+  results: SearchJobResult[];
 };
 
 export type Plan = {

@@ -15,3 +15,5 @@ from app.models.assist_artifact import AssistArtifact
 from app.models.prompt_template import PromptTemplate
 from app.models.provider_setting import ProviderSetting
 from app.models.search_cache_entry import SearchCacheEntry
+from app.models.search_job import SearchJob
+from app.models.search_result import SearchResult

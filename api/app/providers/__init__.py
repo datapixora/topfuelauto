@@ -1,12 +1,14 @@
 from app.core.config import Settings
 from app.providers.marketcheck import MarketCheckProvider
 from app.providers.copart_public import CopartPublicProvider
+from app.providers.web_crawl import WebCrawlOnDemandProvider
 
 
 def _provider_map(settings: Settings):
     return {
         "marketcheck": MarketCheckProvider(settings),
         "copart_public": CopartPublicProvider(),
+        "web_crawl_on_demand": WebCrawlOnDemandProvider(settings),
     }
 
 

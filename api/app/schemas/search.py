@@ -70,3 +70,26 @@ class SearchResponse(BaseModel):
     page_size: int
     sources: list[SearchSource]
     quota: SearchQuota | None = None
+    status: str = "ok"  # ok | pending | error
+    job_id: int | None = None
+    message: str | None = None
+
+
+class SearchJobResult(BaseModel):
+    title: str
+    year: int | None = None
+    make: str | None = None
+    model: str | None = None
+    price: int | None = None
+    location: str | None = None
+    source_domain: str
+    url: str
+    fetched_at: datetime
+
+
+class SearchJobResponse(BaseModel):
+    job_id: int
+    status: str
+    result_count: int | None = None
+    error: str | None = None
+    results: list[SearchJobResult] = []

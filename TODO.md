@@ -88,6 +88,7 @@
 86. [x] Add provider capability gating (requires_structured, supports_free_text) to skip MarketCheck without make/model and prevent garbage results.
 87. [x] Harden CopartPublicProvider to handle non-JSON responses (HTML/Cloudflare blocks/403/empty) with status/content-type validation, retries, and graceful error handling.
 88. [x] Add production-ready legal pages: Terms of Service, Privacy Policy, Data Sources & Disclaimer, DMCA/Takedown + footer links + backend API endpoints (versioned legal documents).
+89. [x] Add on-demand crawl search provider + Celery job + UI polling.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)

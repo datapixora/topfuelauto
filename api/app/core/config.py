@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
     public_web_url: str = Field("https://topfuelauto.com", alias="PUBLIC_WEB_URL")
 
+    # On-demand crawl search
+    crawl_search_allowlist: List[str] = Field(default_factory=list, alias="CRAWL_SEARCH_ALLOWLIST")
+    crawl_search_rate_per_minute: int = Field(30, alias="CRAWL_SEARCH_RATE_PER_MINUTE")
+    crawl_search_concurrency: int = Field(2, alias="CRAWL_SEARCH_CONCURRENCY")
+    crawl_search_max_sources: int = Field(2, alias="CRAWL_SEARCH_MAX_SOURCES")
+    crawl_search_min_results: int = Field(3, alias="CRAWL_SEARCH_MIN_RESULTS")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False)
 
     @field_validator("cors_origins", mode="before")
@@ -48,6 +55,13 @@ class Settings(BaseSettings):
     def split_cors_origins(cls, v):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+
+    @field_validator("crawl_search_allowlist", mode="before")
+    @classmethod
+    def split_crawl_allowlist(cls, v):
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
         return v
 
     @property

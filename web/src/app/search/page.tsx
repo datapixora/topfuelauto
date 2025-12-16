@@ -6,7 +6,7 @@ import TopNav from "../../components/TopNav";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
-import { getQuota, searchMarketplace } from "../../lib/api";
+import { getQuota, getSearchJob, searchMarketplace } from "../../lib/api";
 import { getToken } from "../../lib/auth";
 import { QuotaInfo, SearchItem } from "../../lib/types";
 
@@ -169,6 +169,9 @@ function SearchContent() {
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [quotaError, setQuotaError] = useState<QuotaError | null>(null);
   const [quotaLoading, setQuotaLoading] = useState(false);
+  const [pendingJobId, setPendingJobId] = useState<number | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
   const resetCountdown = useResetCountdown(quota?.reset_at || quotaError?.reset_at || null);
@@ -188,6 +191,63 @@ function SearchContent() {
       .finally(() => setQuotaLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (!pendingJobId) return;
+    let attempts = 0;
+    setPendingStatus("pending");
+    setPendingMessage("Searching additional sources...");
+    const timer = setInterval(async () => {
+      attempts += 1;
+      if (attempts > 15) {
+        setPendingStatus("timeout");
+        setPendingMessage("Timed out waiting for crawl results.");
+        setPendingJobId(null);
+        clearInterval(timer);
+        return;
+      }
+      try {
+        const job = await getSearchJob(pendingJobId);
+        if (job.status === "succeeded") {
+          setPendingStatus("succeeded");
+          setPendingMessage(null);
+          setPendingJobId(null);
+          setItems((prev) => {
+            const mapped = job.results.map((r, idx) => ({
+              id: `job-${job.job_id}-${idx}`,
+              title: r.title,
+              year: r.year,
+              make: r.make,
+              model: r.model,
+              price: r.price ?? null,
+              location: r.location ?? null,
+              url: r.url,
+              source: r.source_domain,
+            }));
+            return [...prev, ...mapped];
+          });
+          setTotal((prev) => Math.max(prev, (job.result_count ?? 0) || 0, items.length + job.results.length));
+          clearInterval(timer);
+          return;
+        }
+        if (job.status == "failed") {
+          setPendingStatus("failed");
+          setPendingMessage("Source temporarily unavailable.");
+          setPendingJobId(null);
+          setError("Source temporarily unavailable. Try again later.");
+          clearInterval(timer);
+          return;
+        }
+        setPendingStatus(job.status);
+      } catch (err: any) {
+        setPendingStatus("error");
+        setPendingMessage("Unable to fetch crawl results.");
+        setPendingJobId(null);
+        clearInterval(timer);
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [pendingJobId, items.length]);
+
   const doSearch = async (targetPage: number, skipGate = false) => {
     if (!skipGate && !getToken() && !canSearchWithoutToken()) {
       router.push("/login?next=/search");
@@ -197,6 +257,9 @@ function SearchContent() {
     setLoading(true);
     setError(null);
     setQuotaError(null);
+    setPendingJobId(null);
+    setPendingStatus(null);
+    setPendingMessage(null);
     try {
       const res = await searchMarketplace({
         q: form.q,
@@ -213,6 +276,11 @@ function SearchContent() {
       setTotal(res.total);
       setPage(targetPage);
       setQuota(res.quota || null);
+      if (res.status === "pending" && res.job_id) {
+        setPendingJobId(res.job_id);
+        setPendingStatus("pending");
+        setPendingMessage("Searching additional sources...");
+      }
       if (!getToken()) {
         incrementFreeSearch();
       }
@@ -325,6 +393,12 @@ function SearchContent() {
         </Card>
       )}
 
+      {pendingStatus && (
+        <div className="text-xs text-slate-300">
+          {pendingStatus === "pending" ? pendingMessage || "Fetching more sources..." : pendingMessage}
+        </div>
+      )}
+
       {!loading && items.length === 0 && !error && !quotaError && (
         <div className="text-slate-400 text-sm">No results yet. Try a different query.</div>
       )}
@@ -358,6 +432,10 @@ function SearchContent() {
           ))}
         </div>
       )}
+
+      <div className="text-xs text-slate-500">
+        Results are aggregated from publicly accessible pages; click a result to view on the original source.
+      </div>
 
       {items.length > 0 && !quotaError && (
         <div className="flex items-center justify-between text-sm text-slate-300">

@@ -9,6 +9,7 @@ import {
   SavedSearchAlert,
   AlertMatch,
   NotificationItem,
+  SearchJobResponse,
 } from "./types";
 
 const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
@@ -146,6 +147,10 @@ export async function searchMarketplace(params: Record<string, string | number |
     throw err;
   }
   throw new Error(`Search failed (${res.status})`);
+}
+
+export async function getSearchJob(jobId: number): Promise<SearchJobResponse> {
+  return apiGet<SearchJobResponse>(`/search/jobs/${jobId}`, undefined, { requireAuth: false, redirectOn401: false });
 }
 
 export async function getListing(id: string | number): Promise<Listing> {

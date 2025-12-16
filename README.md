@@ -71,6 +71,7 @@ Celery worker runs via `docker compose` service `worker` (and Render worker) wit
 ## Required Environment Variables
 - API/Worker: `DATABASE_URL` (from Render Postgres), `CELERY_BROKER_URL` + `CELERY_RESULT_BACKEND` (from Render Redis), `JWT_SECRET`, `ALLOWED_ORIGINS`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `NHTSA_API_BASE` (default provided), `ADMIN_EMAIL`, `ADMIN_PASSWORD` (for bootstrap script).
 - Web:  `NEXT_PUBLIC_API_BASE_URL` (e.g., `https://api.topfuelauto.com/api/v1` on Render today; later Vercel can point to the same). Optional: `NEXT_PUBLIC_SITE_URL` (e.g., `https://topfuelauto.com`).
+- On-demand crawl search: `CRAWL_SEARCH_ALLOWLIST` (comma-separated URL templates like `https://example.com/search?q={query}`), `CRAWL_SEARCH_RATE_PER_MINUTE` (default 30), `CRAWL_SEARCH_CONCURRENCY` (default 2), `CRAWL_SEARCH_MAX_SOURCES` (default 2), `CRAWL_SEARCH_MIN_RESULTS` (default 3 before enqueue).
 
 ### Password note
 - bcrypt hashes only the first 72 bytes; keep `ADMIN_PASSWORD` and user passwords within that limit and prefer ASCII to avoid surprises.

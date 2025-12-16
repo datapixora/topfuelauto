@@ -15,7 +15,16 @@ import logging
 
 from app.providers import get_active_providers
 from app.schemas import search as search_schema
-from app.services import search_service, usage_service, plan_service, provider_setting_service, search_cache_service, query_parser
+from app.services import (
+    search_service,
+    usage_service,
+    plan_service,
+    provider_setting_service,
+    search_cache_service,
+    query_parser,
+    search_job_service,
+)
+from app.workers.search_crawl import run_on_demand_crawl
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
@@ -91,6 +100,7 @@ def search(
     response: Response,
     request: Request,
     q: str = Query(..., min_length=1),
+    deep: bool = Query(False, description="Trigger on-demand crawl"),
     make: str | None = None,
     model: str | None = None,
     year_min: int | None = None,
@@ -203,6 +213,8 @@ def search(
 
     settings = get_settings()
     enabled_keys = [k for k in provider_setting_service.get_enabled_providers(db, "search") if k != "copart_public"]
+    if settings.crawl_search_allowlist and "web_crawl_on_demand" not in enabled_keys:
+        enabled_keys.append("web_crawl_on_demand")
     providers = get_active_providers(settings, allowed_keys=enabled_keys)
     if not providers:
         # fail-safe fallback to marketcheck instantiation
@@ -223,7 +235,7 @@ def search(
         page,
         page_size,
     )
-    cached = _search_cache.get(cache_key)
+    cached = _search_cache.get(cache_key) if not deep else None
     now = time.time()
     if cached and now - cached[0] <= CACHE_TTL_SECONDS:
         response.headers["X-Cache"] = "HIT"
@@ -267,12 +279,14 @@ def search(
 
     # DB cache
     signature = search_cache_service.compute_signature(enabled_keys, query_normalized, filters, page, page_size)
-    try:
-        cached_db = search_cache_service.get_cached(db, signature, ttl_minutes=15)
-    except Exception as exc:
-        db.rollback()
-        logging.getLogger(__name__).warning("search cache get failed: %s", exc)
-        cached_db = None
+    cached_db = None
+    if not deep:
+        try:
+            cached_db = search_cache_service.get_cached(db, signature, ttl_minutes=15)
+        except Exception as exc:
+            db.rollback()
+            logging.getLogger(__name__).warning("search cache get failed: %s", exc)
+            cached_db = None
 
     if cached_db:
         response.headers["X-Cache"] = "HIT"
@@ -327,6 +341,8 @@ def search(
     status = "ok"
     error_code = None
     skipped_providers = []
+    pending_job_id = None
+    pending_message = None
 
     try:
         for provider in providers:
@@ -382,6 +398,31 @@ def search(
         raise HTTPException(status_code=502, detail="Search unavailable")
 
     latency_ms = int((time.time() - start_ts) * 1000)
+
+    crawl_enabled = bool(settings.crawl_search_allowlist)
+    should_enqueue_crawl = crawl_enabled and (deep or total < settings.crawl_search_min_results)
+
+    if should_enqueue_crawl:
+        try:
+            job = search_job_service.create_job(
+                db,
+                user_id=user_id,
+                query_normalized=query_normalized,
+                filters=filters,
+            )
+            pending_job_id = job.id
+            pending_message = "async_crawl_pending"
+            existing_source_names = {s.get("name") for s in sources}
+            if "web_crawl_on_demand" not in existing_source_names:
+                sources.append({"name": "web_crawl_on_demand", "enabled": True, "message": "queued"})
+            try:
+                run_on_demand_crawl.delay(job.id)
+            except Exception:
+                # Fallback to inline execution if Celery broker is unavailable.
+                run_on_demand_crawl(job.id)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("enqueue crawl failed: %s", exc)
+            pending_message = "crawl_unavailable"
     quota_info = None
     try:
         usage = None
@@ -420,21 +461,22 @@ def search(
     except Exception:
         pass
 
-    try:
-        search_cache_service.set_cached(
-            db,
-            signature=signature,
-            providers=[p.name for p in providers],
-            query_normalized=query_normalized,
-            filters=filters,
-            page=page,
-            limit=page_size,
-            total=total,
-            results=items,
-        )
-    except Exception as exc:
-        db.rollback()
-        logging.getLogger(__name__).warning("search cache set failed: %s", exc)
+    if not pending_job_id and not deep:
+        try:
+            search_cache_service.set_cached(
+                db,
+                signature=signature,
+                providers=[p.name for p in providers],
+                query_normalized=query_normalized,
+                filters=filters,
+                page=page,
+                limit=page_size,
+                total=total,
+                results=items,
+            )
+        except Exception as exc:
+            db.rollback()
+            logging.getLogger(__name__).warning("search cache set failed: %s", exc)
 
     response_body = search_schema.SearchResponse(
         items=items,
@@ -443,10 +485,42 @@ def search(
         page_size=page_size,
         sources=sources,
         quota=quota_info,
+        status="pending" if pending_job_id else status,
+        job_id=pending_job_id,
+        message=pending_message,
     )
 
     response.headers["X-Cache"] = "MISS"
 
-    _search_cache[cache_key] = (now, response_body)
+    if not pending_job_id and not deep:
+        _search_cache[cache_key] = (now, response_body)
 
     return response_body
+
+
+@router.get("/search/jobs/{job_id}", response_model=search_schema.SearchJobResponse)
+def get_search_job(job_id: int, db: Session = Depends(get_db)):
+    job, results = search_job_service.get_job_with_results(db, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return search_schema.SearchJobResponse(
+        job_id=job.id,
+        status=job.status,
+        result_count=job.result_count,
+        error=job.error,
+        results=[
+            search_schema.SearchJobResult(
+                title=r.title,
+                year=r.year,
+                make=r.make,
+                model=r.model,
+                price=r.price,
+                location=r.location,
+                source_domain=r.source_domain,
+                url=r.url,
+                fetched_at=r.fetched_at,
+            )
+            for r in results
+        ],
+    )
