@@ -107,3 +107,16 @@ def get_enabled_providers(db: Session, purpose: str) -> List[str]:
 def get_setting(db: Session, key: str) -> ProviderSetting | None:
     ensure_defaults(db)
     return db.query(ProviderSetting).filter(ProviderSetting.key == key).first()
+
+
+def get_provider_states(db: Session, purpose: str) -> dict[str, bool]:
+    """
+    Returns a dict mapping provider keys to their enabled state for a given purpose.
+    purpose: "search" | "assist"
+    Example: {"marketcheck": False, "copart_public": True, "web_crawl_on_demand": False}
+    """
+    ensure_defaults(db)
+    rows = db.query(ProviderSetting).filter(
+        ProviderSetting.mode.in_(["both", purpose])
+    ).all()
+    return {row.key: row.enabled for row in rows}

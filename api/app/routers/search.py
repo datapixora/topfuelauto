@@ -213,6 +213,8 @@ def search(
 
     settings = get_settings()
     enabled_keys = [k for k in provider_setting_service.get_enabled_providers(db, "search") if k != "copart_public"]
+    # Get all provider enabled/disabled states for proper reporting
+    provider_states = provider_setting_service.get_provider_states(db, "search")
     web_crawl_setting = provider_setting_service.get_setting(db, "web_crawl_on_demand")
     web_crawl_config = web_crawl_setting.settings_json if web_crawl_setting else {}
     crawl_allowlist = (web_crawl_config.get("allowlist") if isinstance(web_crawl_config, dict) else None) or settings.crawl_search_allowlist
@@ -331,12 +333,23 @@ def search(
         except Exception:
             pass
 
+        # Build sources list respecting current provider states
+        cached_providers = cached_db.providers_json or enabled_keys or []
+        sources_list = []
+        for p in cached_providers:
+            is_enabled = provider_states.get(p, False)
+            sources_list.append({"name": p, "enabled": is_enabled})
+        # Add disabled providers to sources
+        for provider_key, is_enabled in provider_states.items():
+            if not is_enabled and provider_key not in cached_providers:
+                sources_list.append({"name": provider_key, "enabled": False, "message": "disabled_by_admin"})
+
         response_body = search_schema.SearchResponse(
             items=cached_db.results_json or [],
             total=cached_db.total or 0,
             page=page,
             page_size=page_size,
-            sources=[{"name": p, "enabled": True} for p in (cached_db.providers_json or enabled_keys or [])],
+            sources=sources_list,
             quota=quota_info,
         )
         _search_cache[cache_key] = (time.time(), response_body)
@@ -485,6 +498,12 @@ def search(
         except Exception as exc:
             db.rollback()
             logging.getLogger(__name__).warning("search cache set failed: %s", exc)
+
+    # Add disabled providers to sources list
+    executed_provider_names = {s.get("name") for s in sources}
+    for provider_key, is_enabled in provider_states.items():
+        if not is_enabled and provider_key not in executed_provider_names:
+            sources.append({"name": provider_key, "enabled": False, "message": "disabled_by_admin"})
 
     response_body = search_schema.SearchResponse(
         items=items,

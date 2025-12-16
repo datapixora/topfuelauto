@@ -15,15 +15,16 @@ def _provider_map(settings: Settings, config_map: dict | None = None):
 
 def get_active_providers(settings: Settings, allowed_keys: list[str] | None = None, config_map: dict | None = None):
     provider_dict = _provider_map(settings, config_map=config_map)
-    if allowed_keys:
+    if allowed_keys is not None:
+        # ONLY return providers explicitly in allowed_keys (respects admin DB settings)
+        # Do NOT add extras - admin settings take precedence over config
         ordered = []
         for key in allowed_keys:
             p = provider_dict.get(key)
             if p and p.enabled:
                 ordered.append(p)
-        # include any additional enabled providers not in allowed_keys
-        extras = [p for k, p in provider_dict.items() if (not allowed_keys or k not in allowed_keys) and p.enabled]
-        return ordered + extras
+        return ordered
+    # Fallback: if no allowed_keys specified, return all config-enabled providers
     return [p for p in provider_dict.values() if p.enabled]
 
 
