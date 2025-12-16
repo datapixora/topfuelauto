@@ -212,10 +212,11 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
                 page_items = _parse_list_page(response.text, source.key)
                 items_found += len(page_items)
 
-                # Store items in staged_listings
+                # Store items in staged_listings (with auto-merge check)
                 for item_data in page_items:
                     try:
-                        service.upsert_staged_listing(
+                        # Upsert to staging
+                        staged = service.upsert_staged_listing(
                             db,
                             run_id=run.id,
                             source_key=source.key,
@@ -224,6 +225,18 @@ def _execute_scrape(db: Session, source: Any, run: Any) -> dict:
                             attributes=item_data.get("attributes"),
                         )
                         items_staged += 1
+
+                        # Check auto-merge rules
+                        should_merge, reason = service.should_auto_merge(db, source, staged)
+                        if should_merge:
+                            service.auto_merge_listing(db, staged)
+                            debug_info["auto_merged"] = debug_info.get("auto_merged", 0) + 1
+                            logger.debug(f"Auto-merged: {staged.canonical_url}")
+                        else:
+                            debug_info.setdefault("manual_review_reasons", {})[reason] = \
+                                debug_info.get("manual_review_reasons", {}).get(reason, 0) + 1
+                            logger.debug(f"Manual review required: {reason}")
+
                     except Exception as e:
                         logger.error(f"Failed to stage item: {e}")
 

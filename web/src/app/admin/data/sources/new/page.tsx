@@ -26,9 +26,11 @@ export default function NewSourcePage() {
     timeout_seconds: 30,
     retry_count: 3,
     is_enabled: true,
+    auto_merge_enabled: false,
     // Proxy settings
     proxy_enabled: false,
-    proxy_url: "",
+    proxy_host: "",
+    proxy_port: "",
     proxy_username: "",
     proxy_password: "",
     proxy_type: "http" as "http" | "socks5",
@@ -40,11 +42,18 @@ export default function NewSourcePage() {
     setError(null);
 
     try {
-      // Build settings_json with proxy config
+      // Build settings_json with proxy config and auto-merge
       const settings_json: any = {};
-      if (formData.proxy_enabled && formData.proxy_url) {
+
+      // Auto-merge setting
+      if (formData.auto_merge_enabled) {
+        settings_json.auto_merge_enabled = true;
+      }
+
+      // Proxy config
+      if (formData.proxy_enabled && formData.proxy_host && formData.proxy_port) {
         settings_json.proxy_enabled = true;
-        settings_json.proxy_url = formData.proxy_url;
+        settings_json.proxy_url = `${formData.proxy_type}://${formData.proxy_host}:${formData.proxy_port}`;
         settings_json.proxy_type = formData.proxy_type;
         if (formData.proxy_username) {
           settings_json.proxy_username = formData.proxy_username;
@@ -80,8 +89,8 @@ export default function NewSourcePage() {
   };
 
   const handleTestProxy = async () => {
-    if (!formData.proxy_url) {
-      setProxyTestResult({ success: false, message: "Proxy URL is required" });
+    if (!formData.proxy_host || !formData.proxy_port) {
+      setProxyTestResult({ success: false, message: "Proxy host and port are required" });
       return;
     }
 
@@ -89,6 +98,7 @@ export default function NewSourcePage() {
     setProxyTestResult(null);
 
     try {
+      const proxyUrl = `${formData.proxy_type}://${formData.proxy_host}:${formData.proxy_port}`;
       const response = await fetch("/api/v1/admin/data/test-proxy", {
         method: "POST",
         headers: {
@@ -96,7 +106,7 @@ export default function NewSourcePage() {
           Authorization: `Bearer ${localStorage.getItem("tfa_token")}`,
         },
         body: JSON.stringify({
-          proxy_url: formData.proxy_url,
+          proxy_url: proxyUrl,
           proxy_username: formData.proxy_username || null,
           proxy_password: formData.proxy_password || null,
         }),
@@ -216,6 +226,19 @@ export default function NewSourcePage() {
               />
               <label htmlFor="is_enabled" className="text-sm">Enable source immediately</label>
             </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="auto_merge_enabled"
+                checked={formData.auto_merge_enabled}
+                onChange={(e) => setFormData({ ...formData, auto_merge_enabled: e.target.checked })}
+                className="w-4 h-4"
+              />
+              <label htmlFor="auto_merge_enabled" className="text-sm">
+                Enable auto-merge (skip manual review for valid listings)
+              </label>
+            </div>
           </CardContent>
         </Card>
 
@@ -316,16 +339,40 @@ export default function NewSourcePage() {
 
             {formData.proxy_enabled && (
               <>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Proxy URL</label>
-                  <input
-                    type="text"
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm font-mono"
-                    placeholder="http://proxy.example.com:8080"
-                    value={formData.proxy_url}
-                    onChange={(e) => setFormData({ ...formData, proxy_url: e.target.value })}
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Format: http://host:port or socks5://host:port</p>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Type</label>
+                    <select
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+                      value={formData.proxy_type}
+                      onChange={(e) => setFormData({ ...formData, proxy_type: e.target.value as "http" | "socks5" })}
+                    >
+                      <option value="http">HTTP</option>
+                      <option value="socks5">SOCKS5</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Proxy Server</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm font-mono"
+                      placeholder="proxy.smartproxy.net"
+                      value={formData.proxy_host}
+                      onChange={(e) => setFormData({ ...formData, proxy_host: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Port</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm font-mono"
+                      placeholder="3120"
+                      value={formData.proxy_port}
+                      onChange={(e) => setFormData({ ...formData, proxy_port: e.target.value })}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -358,7 +405,7 @@ export default function NewSourcePage() {
                     type="button"
                     variant="ghost"
                     onClick={handleTestProxy}
-                    disabled={testingProxy || !formData.proxy_url}
+                    disabled={testingProxy || !formData.proxy_host || !formData.proxy_port}
                   >
                     {testingProxy ? "Testing..." : "Test Proxy Connection"}
                   </Button>

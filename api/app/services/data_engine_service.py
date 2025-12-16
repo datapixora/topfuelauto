@@ -64,6 +64,101 @@ def decrypt_proxy_settings(settings_json: Optional[dict]) -> Optional[dict]:
 
 
 # ============================================================================
+# Auto-Merge Rules
+# ============================================================================
+
+def should_auto_merge(db: Session, source: Any, staged_listing: Any) -> tuple[bool, Optional[str]]:
+    """
+    Check if a staged listing should be auto-merged based on simple rules.
+
+    Returns: (should_merge: bool, reason: Optional[str])
+    - (True, None) = auto-merge approved
+    - (False, reason) = requires manual review
+
+    Rules:
+    1. Source must have auto_merge_enabled=True in settings_json
+    2. Required fields: title, year (or make/model)
+    3. No duplicate: canonical_url not in merged_listings
+    4. Quality filters: price > 0 (if present), year in range 1900-2030
+    """
+    settings = source.settings_json or {}
+
+    # Rule 1: Check if source has auto-merge enabled
+    if not settings.get("auto_merge_enabled"):
+        return (False, "Auto-merge not enabled for source")
+
+    # Rule 2: Required fields validation
+    if not staged_listing.title and not (staged_listing.make and staged_listing.model):
+        return (False, "Missing required fields (title or make/model)")
+
+    # Rule 3: Duplicate check - canonical_url must not exist in merged_listings
+    from app.models.merged_listing import MergedListing
+    existing = db.query(MergedListing).filter(
+        MergedListing.canonical_url == staged_listing.canonical_url
+    ).first()
+    if existing:
+        return (False, f"Duplicate: already merged as #{existing.id}")
+
+    # Rule 4: Quality filters
+    if staged_listing.price_amount is not None and staged_listing.price_amount <= 0:
+        return (False, "Invalid price (must be > 0)")
+
+    if staged_listing.year is not None and (staged_listing.year < 1900 or staged_listing.year > 2030):
+        return (False, f"Invalid year ({staged_listing.year} out of range)")
+
+    # All rules passed
+    return (True, None)
+
+
+def auto_merge_listing(db: Session, staged_listing: Any) -> Any:
+    """
+    Auto-merge a staged listing to merged_listings.
+    Returns the merged listing.
+    """
+    # Prepare listing data
+    listing_data = {
+        "title": staged_listing.title,
+        "year": staged_listing.year,
+        "make": staged_listing.make,
+        "model": staged_listing.model,
+        "price_amount": staged_listing.price_amount,
+        "currency": staged_listing.currency,
+        "odometer_value": staged_listing.odometer_value,
+        "location": staged_listing.location,
+        "listed_at": staged_listing.listed_at,
+        "sale_datetime": staged_listing.sale_datetime,
+        "fetched_at": staged_listing.fetched_at,
+        "status": staged_listing.status,
+    }
+
+    # Prepare attributes
+    attributes = [
+        {
+            "key": attr.key,
+            "value_text": attr.value_text,
+            "value_num": attr.value_num,
+            "value_bool": attr.value_bool,
+            "unit": attr.unit,
+        }
+        for attr in staged_listing.attributes
+    ]
+
+    # Upsert to merged_listings
+    merged = upsert_merged_listing(
+        db,
+        source_key=staged_listing.source_key,
+        canonical_url=staged_listing.canonical_url,
+        listing_data=listing_data,
+        attributes=attributes,
+    )
+
+    # Delete staged listing after merge
+    db.delete(staged_listing)
+
+    return merged
+
+
+# ============================================================================
 # Admin Source CRUD
 # ============================================================================
 
