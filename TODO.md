@@ -49,7 +49,8 @@
 47. [ ] Implement full pricing page and Stripe plan selection.
 48. [ ] Implement real signup flow (UI + API).
 49. [x] Fix admin provider toggles not affecting /search endpoint - providers disabled in admin now correctly excluded from execution and reported as disabled in sources response.
-49. [ ] Add admin dashboard analytics visualizations.
+50. [x] Complete provider config system fix - removed hardcoded exclusions, removed marketcheck failsafe, changed provider modes to 'both' to enable all providers for search/assist via admin panel.
+51. [ ] Add admin dashboard analytics visualizations.
 50. [x] Add MarketCheck provider adapter and /api/v1/search aggregation endpoint.
 51. [x] Wire /search page to MarketCheck with soft-gate and pagination.
 52. [x] Add per-user usage tracking and plan enforcement for search.

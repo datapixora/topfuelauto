@@ -7,12 +7,12 @@ from app.models.provider_setting import ProviderSetting
 
 DEFAULTS = [
     {"key": "marketcheck", "enabled": True, "priority": 10, "mode": "both", "settings_json": None},
-    {"key": "copart_public", "enabled": False, "priority": 20, "mode": "assist", "settings_json": None},
+    {"key": "copart_public", "enabled": False, "priority": 20, "mode": "both", "settings_json": None},
     {
         "key": "web_crawl_on_demand",
         "enabled": False,
         "priority": 30,
-        "mode": "search",
+        "mode": "both",
         "settings_json": {
             "allowlist": [],
             "rate_per_minute": 30,
@@ -83,7 +83,8 @@ def update_setting(db: Session, key: str, *, enabled=None, priority=None, mode=N
 def get_enabled_providers(db: Session, purpose: str) -> List[str]:
     """
     purpose: "search" | "assist"
-    Returns provider keys ordered by priority asc; falls back to ['marketcheck'] if empty.
+    Returns provider keys ordered by priority asc.
+    Returns empty list if no providers enabled (respects admin settings).
     """
     ensure_defaults(db)
     rows = (
@@ -98,9 +99,7 @@ def get_enabled_providers(db: Session, purpose: str) -> List[str]:
     keys = [row.key for row in rows]
     if not keys:
         import logging
-
-        logging.getLogger(__name__).warning("No enabled providers for %s; falling back to marketcheck", purpose)
-        return ["marketcheck"]
+        logging.getLogger(__name__).warning("No enabled providers for %s; returning empty list (respects admin)", purpose)
     return keys
 
 

@@ -212,7 +212,8 @@ def search(
             return resp
 
     settings = get_settings()
-    enabled_keys = [k for k in provider_setting_service.get_enabled_providers(db, "search") if k != "copart_public"]
+    # Load enabled providers from DB - NO hardcoded exclusions!
+    enabled_keys = provider_setting_service.get_enabled_providers(db, "search")
     # Get all provider enabled/disabled states for proper reporting
     provider_states = provider_setting_service.get_provider_states(db, "search")
     web_crawl_setting = provider_setting_service.get_setting(db, "web_crawl_on_demand")
@@ -225,10 +226,12 @@ def search(
     )
     if web_crawl_setting and web_crawl_setting.enabled and crawl_allowlist and "web_crawl_on_demand" not in enabled_keys:
         enabled_keys.append("web_crawl_on_demand")
+
+    # Build providers from DB-enabled keys only (respects admin settings)
     providers = get_active_providers(settings, allowed_keys=enabled_keys, config_map={"web_crawl_on_demand": web_crawl_config})
-    if not providers:
-        # fail-safe fallback to marketcheck instantiation
-        providers = get_active_providers(settings, allowed_keys=["marketcheck"])
+
+    # NO failsafe to marketcheck - respect admin DB settings completely
+    # If admin disables all providers, return empty results (not force marketcheck)
 
     # Use final filters (after priority override) for cache key
     cache_key = _make_cache_key(
