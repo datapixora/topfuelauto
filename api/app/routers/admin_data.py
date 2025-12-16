@@ -118,14 +118,21 @@ def trigger_source_run(
         raise HTTPException(status_code=400, detail="Source is disabled")
 
     # Enqueue Celery task
-    from app.workers.data_engine import run_source_scrape
-    task = run_source_scrape.delay(source_id)
+    try:
+        from app.workers.data_engine import run_source_scrape
+        task = run_source_scrape.delay(source_id)
 
-    return {
-        "task_id": task.id,
-        "source_id": source_id,
-        "message": "Scraping task enqueued"
-    }
+        return {
+            "task_id": task.id,
+            "source_id": source_id,
+            "message": "Scraping task enqueued"
+        }
+    except Exception as e:
+        logger.error(f"Failed to enqueue scraping task: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to enqueue scraping task. Celery worker may not be running. Error: {str(e)}"
+        )
 
 
 @router.get("/sources/{source_id}/runs", response_model=List[schemas.AdminRunOut])
