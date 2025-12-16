@@ -33,7 +33,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://app.topfuelauto.com,http://localhost:3000
+        value: https://topfuelauto.com,https://www.topfuelauto.com,https://app.topfuelauto.com,http://localhost:3000
       - key: PYTHON_VERSION
         value: 3.12.8
 
