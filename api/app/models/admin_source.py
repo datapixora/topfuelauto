@@ -12,9 +12,9 @@ class SourceMode(str, enum.Enum):
 
 
 class ProxyMode(str, enum.Enum):
-    NONE = "none"
-    POOL = "pool"
-    MANUAL = "manual"
+    NONE = "NONE"
+    POOL = "POOL"
+    MANUAL = "MANUAL"
 
 
 class AdminSource(Base):

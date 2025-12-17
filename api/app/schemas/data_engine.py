@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from app.models.admin_source import ProxyMode
 
 
@@ -63,6 +63,13 @@ class AdminSourceBase(BaseModel):
     settings_json: Optional[dict] = None
     merge_rules: Optional[MergeRules] = None
 
+    @validator('proxy_mode', pre=True)
+    def normalize_proxy_mode(cls, v):
+        """Normalize proxy_mode to uppercase to prevent SQLAlchemy enum decode errors."""
+        if isinstance(v, str):
+            return v.upper()
+        return v
+
 
 class AdminSourceCreate(AdminSourceBase):
     pass
@@ -84,6 +91,13 @@ class AdminSourceUpdate(BaseModel):
     proxy_id: Optional[int] = None
     settings_json: Optional[dict] = None
     merge_rules: Optional[MergeRules] = None
+
+    @validator('proxy_mode', pre=True)
+    def normalize_proxy_mode(cls, v):
+        """Normalize proxy_mode to uppercase to prevent SQLAlchemy enum decode errors."""
+        if isinstance(v, str):
+            return v.upper()
+        return v
 
 
 class AdminSourceOut(AdminSourceBase):

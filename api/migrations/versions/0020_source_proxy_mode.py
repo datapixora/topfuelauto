@@ -19,11 +19,11 @@ def upgrade() -> None:
     # Drop existing enum if it exists (from failed migration)
     op.execute("DROP TYPE IF EXISTS proxymode CASCADE")
 
-    # Create enum type for proxy_mode with lowercase values
-    op.execute("CREATE TYPE proxymode AS ENUM ('none', 'pool', 'manual')")
+    # Create enum type for proxy_mode with uppercase values
+    op.execute("CREATE TYPE proxymode AS ENUM ('NONE', 'POOL', 'MANUAL')")
 
     # Add columns to admin_sources
-    op.add_column("admin_sources", sa.Column("proxy_mode", sa.Enum('none', 'pool', 'manual', name='proxymode', create_type=False), nullable=False, server_default="none"))
+    op.add_column("admin_sources", sa.Column("proxy_mode", sa.Enum('NONE', 'POOL', 'MANUAL', name='proxymode', create_type=False), nullable=False, server_default="NONE"))
     op.add_column("admin_sources", sa.Column("proxy_id", sa.Integer(), nullable=True))
     op.add_column("admin_sources", sa.Column("proxy_enabled", sa.Boolean(), nullable=False, server_default="false"))
 
