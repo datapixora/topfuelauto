@@ -769,14 +769,45 @@ def _candidate_selectors_from_product_links(soup: BeautifulSoup) -> list[str]:
 
 
 def _score_item_nodes(nodes: list[Any]) -> float:
-    count = len(nodes)
+    metrics = _item_nodes_metrics(nodes)
+    count = int(metrics["count"])
     if count < 2:
         return 0.0
 
+    # Prefer selectors that return a reasonable count of repeated "cards".
+    count_score = min(count, 60) / 60.0
+
+    avg_text_len = float(metrics["avg_text_len"])
+    # Penalize giant containers; those are usually wrappers, not items.
+    big_penalty = 0.25 if avg_text_len > 600 else (0.1 if avg_text_len > 350 else 0.0)
+
+    score = (
+        (0.50 * count_score)
+        + (0.20 * float(metrics["product_link_ratio"]))
+        + (0.10 * float(metrics["link_ratio"]))
+        + (0.12 * float(metrics["price_ratio"]))
+        + (0.06 * float(metrics["img_ratio"]))
+        + (0.02 * float(metrics["title_ratio"]))
+        - big_penalty
+    )
+    return max(0.0, min(1.0, score))
+
+
+def _item_nodes_metrics(nodes: list[Any]) -> dict[str, float | int]:
+    count = len(nodes)
+    if count <= 0:
+        return {
+            "count": 0,
+            "link_ratio": 0.0,
+            "product_link_ratio": 0.0,
+            "price_ratio": 0.0,
+            "img_ratio": 0.0,
+            "title_ratio": 0.0,
+            "avg_text_len": 0.0,
+        }
+
     sample = nodes[: min(count, 25)]
-    n = len(sample)
-    if n == 0:
-        return 0.0
+    n = len(sample) or 1
 
     link_hits = 0
     product_link_hits = 0
@@ -823,29 +854,26 @@ def _score_item_nodes(nodes: list[Any]) -> float:
         except Exception:
             pass
 
-    link_ratio = link_hits / n
-    product_link_ratio = product_link_hits / n
-    price_ratio = price_hits / n
-    img_ratio = img_hits / n
-    title_ratio = title_hits / n
+    return {
+        "count": count,
+        "link_ratio": link_hits / n,
+        "product_link_ratio": product_link_hits / n,
+        "price_ratio": price_hits / n,
+        "img_ratio": img_hits / n,
+        "title_ratio": title_hits / n,
+        "avg_text_len": (sum(text_lens) / n) if n else 0.0,
+    }
 
-    # Prefer selectors that return a reasonable count of repeated "cards".
-    count_score = min(count, 60) / 60.0
 
-    avg_text_len = (sum(text_lens) / n) if n else 0.0
-    # Penalize giant containers; those are usually wrappers, not items.
-    big_penalty = 0.25 if avg_text_len > 600 else (0.1 if avg_text_len > 350 else 0.0)
-
-    score = (
-        (0.50 * count_score)
-        + (0.20 * product_link_ratio)
-        + (0.10 * link_ratio)
-        + (0.12 * price_ratio)
-        + (0.06 * img_ratio)
-        + (0.02 * title_ratio)
-        - big_penalty
-    )
-    return max(0.0, min(1.0, score))
+def _is_page_level_item_selector(selector: str) -> bool:
+    sel = (selector or "").strip().lower()
+    if not sel:
+        return False
+    if sel in {"html", "body", "main"}:
+        return True
+    if "elementor-widget-container" in sel or "elementor-container" in sel or "elementor-section" in sel:
+        return True
+    return False
 
 
 def _pick_best_item_selector(soup: BeautifulSoup, candidates: list[str]) -> Optional[str]:
@@ -858,6 +886,24 @@ def _pick_best_item_selector(soup: BeautifulSoup, candidates: list[str]) -> Opti
             continue
         if not nodes:
             continue
+        metrics = _item_nodes_metrics(nodes)
+
+        # Guardrails: reject obvious page-level containers unless they behave like repeated product cards.
+        if _is_page_level_item_selector(sel):
+            if int(metrics["count"]) < 4:
+                continue
+            if float(metrics["product_link_ratio"]) < 0.20:
+                continue
+            if float(metrics["img_ratio"]) < 0.20:
+                continue
+
+        # Guardrails: require some "card-like" structure for repeated selectors.
+        if int(metrics["count"]) >= 4:
+            if float(metrics["link_ratio"]) < 0.30:
+                continue
+            if float(metrics["img_ratio"]) < 0.15 and float(metrics["price_ratio"]) < 0.10:
+                continue
+
         score = _score_item_nodes(nodes)
         if score > best_score:
             best_score = score
@@ -1031,6 +1077,113 @@ def _suggest_jsonld_extract(mode: str) -> dict[str, Any]:
     }
 
 
+def _count_field_hits(
+    item_nodes: list[Any],
+    selector: str,
+    *,
+    attr: str,
+    value_filter: Optional[Callable[[str], bool]] = None,
+) -> int:
+    if not item_nodes:
+        return 0
+    if not isinstance(selector, str) or not selector.strip():
+        return 0
+
+    hits = 0
+    sample = item_nodes[: min(len(item_nodes), 25)]
+    for node in sample:
+        try:
+            target = node.select_one(selector)
+        except Exception:
+            target = None
+        if target is None:
+            continue
+
+        try:
+            if attr == "text":
+                value = target.get_text(" ", strip=True)
+            else:
+                value = target.get(attr)
+                if isinstance(value, (list, tuple)):
+                    value = " ".join([str(x) for x in value if x is not None]).strip()
+                value = str(value).strip() if value is not None else ""
+        except Exception:
+            value = ""
+
+        if not value:
+            continue
+        if value_filter and not value_filter(value):
+            continue
+        hits += 1
+    return hits
+
+
+def _suggest_woocommerce_extract(soup: BeautifulSoup, *, used_url: str) -> tuple[dict[str, Any], list[str]]:
+    """
+    Dedicated WooCommerce template builder.
+
+    Uses robust selectors and avoids overly generic containers.
+    """
+    warnings: list[str] = []
+
+    item_selector = "li.product, .products .product, ul.products li.product"
+    try:
+        item_nodes = soup.select(item_selector)
+    except Exception:
+        item_nodes = []
+
+    if len(item_nodes) < 2:
+        warnings.append(
+            f"woocommerce_template: item_selector matched {len(item_nodes)} items; "
+            f"expected repeated product cards (selector='{item_selector}')"
+        )
+
+    url_selector = "a.woocommerce-LoopProduct-link, a.woocommerce-loop-product__link, a[href*='/product/']"
+    title_selector = "h2.woocommerce-loop-product__title, .woocommerce-loop-product__title"
+    price_selector = ".price, span.woocommerce-Price-amount, .woocommerce-Price-amount"
+    image_selector = (
+        "img.attachment-woocommerce_thumbnail, "
+        "a.woocommerce-LoopProduct-link img, "
+        "a.woocommerce-loop-product__link img, "
+        "img"
+    )
+
+    # Validate selectors against the actual DOM and emit warnings instead of empty strings.
+    url_selector_out: Optional[str] = url_selector
+    title_selector_out: Optional[str] = title_selector
+    price_selector_out: Optional[str] = price_selector
+    image_selector_out: Optional[str] = image_selector
+
+    if item_nodes:
+        if _count_field_hits(item_nodes, url_selector, attr="href", value_filter=_looks_like_product_href) == 0:
+            warnings.append(f"woocommerce_template: url selector produced 0 product-like hrefs (selector='{url_selector}')")
+            url_selector_out = None
+
+        if _count_field_hits(item_nodes, title_selector, attr="text") == 0:
+            warnings.append(f"woocommerce_template: title selector produced 0 hits (selector='{title_selector}')")
+            title_selector_out = None
+
+        if _count_field_hits(item_nodes, price_selector, attr="text", value_filter=_looks_like_price) == 0:
+            warnings.append(f"woocommerce_template: price selector produced 0 price-like values (selector='{price_selector}')")
+            price_selector_out = None
+
+        if _count_field_hits(item_nodes, image_selector, attr="src") == 0:
+            warnings.append(f"woocommerce_template: image selector produced 0 hits (selector='{image_selector}')")
+            image_selector_out = None
+
+    extract: dict[str, Any] = {
+        "strategy": "woocommerce",
+        "list": {"item_selector": item_selector},
+        "fields": {
+            "title": {"selector": title_selector_out, "attr": "text"},
+            "price": {"selector": price_selector_out, "attr": "text"},
+            "url": {"selector": url_selector_out, "attr": "href"},
+            "image": {"selector": image_selector_out, "attr": "src"},
+        },
+        "normalize": {},
+    }
+    return extract, warnings
+
 def _select_detected_strategy(signals: dict[str, Any]) -> str:
     """
     Detect v2 selection rules.
@@ -1050,54 +1203,16 @@ def _select_detected_strategy(signals: dict[str, Any]) -> str:
     return "generic_html_list"
 
 
-def _suggest_extract_for_strategy(detected_strategy: str, soup: BeautifulSoup, *, used_url: str) -> dict[str, Any]:
+def _suggest_extract_for_strategy(detected_strategy: str, soup: BeautifulSoup, *, used_url: str) -> tuple[dict[str, Any], list[str]]:
+    warnings: list[str] = []
+
     if detected_strategy == "jsonld_itemlist":
-        return _suggest_jsonld_extract("ItemList")
+        return _suggest_jsonld_extract("ItemList"), warnings
     if detected_strategy == "jsonld_product":
-        return _suggest_jsonld_extract("Product")
+        return _suggest_jsonld_extract("Product"), warnings
     if detected_strategy == "woocommerce":
-        return _suggest_generic_html_list_extract(
-            soup,
-            used_url=used_url,
-            item_selector_candidates=[
-                "ul.products li.product",
-                "li.product",
-                ".products .product",
-                ".product",
-            ],
-            title_selector_candidates=[
-                "h2.woocommerce-loop-product__title",
-                ".woocommerce-loop-product__title",
-                ".product__title",
-                ".product-title",
-                "h3",
-                "h2",
-                "a",
-            ],
-            price_selector_candidates=[
-                ".price .woocommerce-Price-amount",
-                ".woocommerce-Price-amount",
-                ".price",
-                ".amount",
-            ],
-            url_selector_candidates=[
-                "a.woocommerce-LoopProduct-link",
-                "a.woocommerce-loop-product__link",
-                "a[href*='product']",
-                "a[href]",
-            ],
-            image_selector_candidates=[
-                "img.attachment-woocommerce_thumbnail",
-                "img.wp-post-image",
-                "img",
-            ],
-            next_page_selector_candidates=[
-                ".woocommerce-pagination a.next",
-                ".next.page-numbers",
-                "a[rel='next']",
-                "a.next",
-            ],
-        )
+        extract, warnings = _suggest_woocommerce_extract(soup, used_url=used_url)
+        return extract, warnings
     if detected_strategy == "shopify":
         suggested = _suggest_generic_html_list_extract(
             soup,
@@ -1138,6 +1253,8 @@ def _suggest_extract_for_strategy(detected_strategy: str, soup: BeautifulSoup, *
             ],
         )
 
+        suggested["strategy"] = "shopify"
+
         # If this looks like a Shopify collection URL, suggest the products.json endpoint.
         try:
             parsed = urlparse(used_url)
@@ -1147,10 +1264,15 @@ def _suggest_extract_for_strategy(detected_strategy: str, soup: BeautifulSoup, *
                 }
         except Exception:
             pass
-        return suggested
+        return suggested, warnings
 
     # nextjs and generic fallback both use DOM card heuristics for now.
-    return _suggest_generic_html_list_extract(soup, used_url=used_url)
+    if detected_strategy == "nextjs":
+        suggested = _suggest_generic_html_list_extract(soup, used_url=used_url)
+        suggested["strategy"] = "nextjs"
+        return suggested, warnings
+
+    return _suggest_generic_html_list_extract(soup, used_url=used_url), warnings
 
 
 def detect_from_html(html: str, *, used_url: str) -> dict[str, Any]:
@@ -1163,13 +1285,20 @@ def detect_from_html(html: str, *, used_url: str) -> dict[str, Any]:
     detected_strategy = _select_detected_strategy(signals)
 
     soup = BeautifulSoup(html or "", "lxml")
-    suggested_extract = _suggest_extract_for_strategy(detected_strategy, soup, used_url=used_url)
+    suggested_extract, warnings = _suggest_extract_for_strategy(detected_strategy, soup, used_url=used_url)
+    suggested_settings_patch: dict[str, Any] = {
+        "targets": {"test_url": used_url},
+        "detected_strategy": detected_strategy,
+        "extract": suggested_extract,
+    }
     return {
         "signals": signals,
         "fingerprints": fingerprints,
         "candidates": candidates,
+        "errors": warnings,
         "detected_strategy": detected_strategy,
         "suggested_extract": suggested_extract,
+        "suggested_settings_patch": suggested_settings_patch,
     }
 
 
@@ -1205,10 +1334,18 @@ def detect_source(
     signals = analysis["signals"]
     fingerprints = analysis["fingerprints"]
     candidates = analysis["candidates"]
+    errors = analysis.get("errors") or []
+    if not isinstance(errors, list):
+        errors = [str(errors)]
     detected_strategy = analysis["detected_strategy"]
     suggested_extract = analysis["suggested_extract"]
 
-    suggested_settings_patch: dict[str, Any] = {
+    suggested_settings_patch: dict[str, Any] = analysis.get("suggested_settings_patch") or {}
+    if not isinstance(suggested_settings_patch, dict):
+        suggested_settings_patch = {}
+
+    suggested_settings_patch = {
+        **suggested_settings_patch,
         "targets": {"test_url": used_url},
         "fetch": {
             "use_proxy": bool(use_proxy),
@@ -1240,6 +1377,7 @@ def detect_source(
         "fingerprints": fingerprints,
         "signals": signals,
         "candidates": candidates,
+        "errors": errors,
         "detected_strategy": detected_strategy,
         "suggested_settings_patch": suggested_settings_patch,
         "attempts": [

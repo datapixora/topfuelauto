@@ -80,11 +80,21 @@ def test_detect_v2_woocommerce_category_suggests_selectors():
     res = source_detect_service.detect_from_html(html, used_url="https://example.com/shop")
     assert res["detected_strategy"] == "woocommerce"
 
-    extract = res["suggested_extract"]
-    assert extract["strategy"] == "generic_html_list"
-    assert extract["list"]["item_selector"]
+    patch = res["suggested_settings_patch"]
+    extract = patch["extract"]
+    assert extract["strategy"] == "woocommerce"
+    assert "li.product" in extract["list"]["item_selector"] or ".products .product" in extract["list"]["item_selector"]
+    assert extract["fields"]["price"]["selector"]
     assert extract["fields"]["url"]["selector"]
-    assert extract["fields"]["title"]["selector"]
+    assert (
+        "woocommerce-LoopProduct-link" in extract["fields"]["url"]["selector"]
+        or "/product/" in extract["fields"]["url"]["selector"]
+    )
+
+    # Confidence should remain high for strong WooCommerce signals.
+    woo = next((c for c in res["candidates"] if c.get("strategy_key") == "woocommerce"), None)
+    assert woo is not None
+    assert float(woo.get("confidence") or 0) >= 0.7
 
 
 def test_detect_v2_shopify_collection_suggests_selectors_and_products_json():
@@ -132,7 +142,7 @@ def test_detect_v2_shopify_collection_suggests_selectors_and_products_json():
     assert res["detected_strategy"] == "shopify"
 
     extract = res["suggested_extract"]
-    assert extract["strategy"] == "generic_html_list"
+    assert extract["strategy"] == "shopify"
     assert extract["list"]["item_selector"]
     assert extract["fields"]["url"]["selector"]
     assert extract["fields"]["title"]["selector"]
@@ -186,4 +196,3 @@ def test_detect_v2_generic_html_list_cards_suggests_selectors():
     assert extract["list"]["item_selector"]
     assert extract["fields"]["url"]["selector"]
     assert extract["fields"]["title"]["selector"]
-

@@ -90,6 +90,7 @@ export default function ExtractorTemplatePanel(props: {
 
   const [itemSelector, setItemSelector] = useState(initialExtract.list.item_selector || "");
   const [nextPageSelector, setNextPageSelector] = useState(initialExtract.list.next_page_selector || "");
+  const [extractStrategy, setExtractStrategy] = useState(initialExtract.strategy || "generic_html_list");
   const [titleSelector, setTitleSelector] = useState(
     (initialExtract.fields?.title?.selector as string) || ""
   );
@@ -116,6 +117,7 @@ export default function ExtractorTemplatePanel(props: {
     const next = normalizeExtract(props.initialSettingsJson?.extract || {});
     setItemSelector(next.list.item_selector || "");
     setNextPageSelector(next.list.next_page_selector || "");
+    setExtractStrategy(next.strategy || "generic_html_list");
     setTitleSelector((next.fields?.title?.selector as string) || "");
     setPriceSelector((next.fields?.price?.selector as string) || "");
     setUrlSelector((next.fields?.url?.selector as string) || "");
@@ -167,7 +169,7 @@ export default function ExtractorTemplatePanel(props: {
   }, [props.initialSettingsJson, props.sourceId]);
 
   const buildConfig = (): ExtractConfig => ({
-    strategy: "generic_html_list",
+    strategy: extractStrategy || "generic_html_list",
     list: {
       item_selector: itemSelector,
       ...(nextPageSelector ? { next_page_selector: nextPageSelector } : {}),
@@ -281,10 +283,10 @@ export default function ExtractorTemplatePanel(props: {
         </div>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
-        {detectedStrategy && detectedStrategy !== "generic_html_list" && (
+        {detectedStrategy && (
           <div className="text-xs text-slate-500">
-            Detected strategy: <span className="font-mono">{detectedStrategy}</span>. This panel configures the{" "}
-            <span className="font-mono">generic_html_list</span> selector template.
+            Detected strategy: <span className="font-mono">{detectedStrategy}</span>. Extract strategy:{" "}
+            <span className="font-mono">{extractStrategy || "generic_html_list"}</span>.
           </div>
         )}
 

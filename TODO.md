@@ -117,6 +117,7 @@
 106. [x] Data Engine: Safe Save Template - added POST /api/v1/admin/data/sources/{id}/save-template to validate extractor config (must find items) before persisting settings_json.extract, settings_json.targets.test_url, and settings_json.extract_sample (tested_at/url/items_preview); UI Save Template calls save-template, shows “Saved ✓”, and offers a Run Now CTA.
 107. [x] Data Engine: Detect → Template → Test flow polish - single settings_json.targets.test_url used by Detect/Test Extract/Save, multi-strategy Detect (jsonld_product/jsonld_itemlist/shopify/woocommerce/nextjs/generic_html_list) now returns non-placeholder suggested_settings_patch, Apply Suggested Template auto-triggers a Test Extract preview, and runner uses settings_json.extract template to stage items (plus deep-merge settings_json.targets/fetch to avoid clobbering nested keys).
 108. [x] Data Engine: Detect v2 strengthened - multi-attempt fetch matrix (httpx/proxy/playwright), robust signals (jsonld_count/types + platform scores + card/pagination scores), chosen_best attempt surfaced in UI, and unit tests for jsonld/woocommerce/shopify/generic card pages.
+109. [x] Data Engine: WooCommerce suggested template improvements - dedicated WooCommerce selector builder (no empty selectors), stronger card-scoring guardrails to avoid page-level containers, editable suggested template UI with apply+auto Test Extract, and updated tests.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
