@@ -39,7 +39,7 @@ class AdminRun(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     # Relationship
-    source = relationship("AdminSource", backref="runs")
+    source = relationship("AdminSource", backref="runs", passive_deletes=True)
 
     __table_args__ = (
         Index("ix_admin_runs_source_created", "source_id", "created_at"),

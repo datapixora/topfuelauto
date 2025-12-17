@@ -23,7 +23,7 @@ class StagedListingAttribute(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationship
-    listing = relationship("StagedListing", back_populates="attributes")
+    listing = relationship("StagedListing", back_populates="attributes", passive_deletes=True)
 
     __table_args__ = (
         Index("ix_staged_attributes_listing_key", "staged_listing_id", "key"),

@@ -46,8 +46,8 @@ class StagedListing(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    run = relationship("AdminRun", backref="staged_items")
-    attributes = relationship("StagedListingAttribute", back_populates="listing", cascade="all, delete-orphan")
+    run = relationship("AdminRun", backref="staged_items", passive_deletes=True)
+    attributes = relationship("StagedListingAttribute", back_populates="listing", cascade="all, delete-orphan", passive_deletes=True)
 
     __table_args__ = (
         UniqueConstraint("source_key", "canonical_url", name="uq_staged_listing_source_url"),

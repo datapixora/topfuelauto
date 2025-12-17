@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, List, Optional
 import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, delete
 
 from app.models.admin_source import AdminSource
 from app.models.admin_run import AdminRun
@@ -430,17 +430,34 @@ def toggle_source(db: Session, source_id: int) -> Optional[AdminSource]:
 
 
 def delete_source(db: Session, source_id: int) -> bool:
-    """Delete an admin source (and cascade delete runs/items)."""
+    """
+    Delete an admin source (and cascade delete runs/items).
+
+    Uses SQLAlchemy Core DELETE to allow database CASCADE constraints to work.
+    ORM delete() tries to SET NULL on child FKs before deleting parent, which fails
+    because source_id is NOT NULL. Core DELETE bypasses ORM and lets DB handle CASCADE.
+    """
     try:
+        # First check if source exists and get metadata for logging
         db_source = get_source(db, source_id)
-        if not db_source:
+        if db_source:
+            source_key = db_source.key
+            logger.info(f"Deleting source {source_id} ({source_key})")
+        else:
             logger.warning(f"delete_source: source_id={source_id} not found")
             return False
 
-        logger.info(f"Deleting source {source_id} ({db_source.key})")
-        db.delete(db_source)
+        # Use Core DELETE statement to allow DB CASCADE to work
+        # This bypasses ORM relationship handling that tries to NULL FKs
+        stmt = delete(AdminSource).where(AdminSource.id == source_id)
+        result = db.execute(stmt)
         db.commit()
-        logger.info(f"Successfully deleted source {source_id}")
+
+        if result.rowcount == 0:
+            logger.warning(f"delete_source: source_id={source_id} not found (rowcount=0)")
+            return False
+
+        logger.info(f"Successfully deleted source {source_id} (rowcount={result.rowcount})")
         return True
     except Exception as e:
         logger.error(f"Error deleting source {source_id}: {type(e).__name__}: {e}")
