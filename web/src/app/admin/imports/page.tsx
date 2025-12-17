@@ -231,7 +231,7 @@ export default function ImportsPage() {
                 />
                 <Button
                   onClick={() => fileInputRef.current?.click()}
-                  variant="outline"
+                  variant="ghost"
                 >
                   Select File
                 </Button>
@@ -252,8 +252,7 @@ export default function ImportsPage() {
                     setFile(null);
                     if (fileInputRef.current) fileInputRef.current.value = "";
                   }}
-                  variant="outline"
-                  size="sm"
+                  variant="ghost"
                 >
                   Remove
                 </Button>
@@ -352,7 +351,7 @@ export default function ImportsPage() {
               </div>
 
               <div className="flex space-x-3">
-                <Button onClick={handleReset} variant="outline">
+                <Button onClick={handleReset} variant="ghost">
                   Cancel
                 </Button>
                 <Button onClick={handleStartImport} className="flex-1">
@@ -461,7 +460,7 @@ export default function ImportsPage() {
               </Button>
               <Button
                 onClick={() => window.location.href = "/search"}
-                variant="outline"
+                variant="ghost"
               >
                 View in Search
               </Button>
