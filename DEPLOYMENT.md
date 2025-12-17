@@ -128,10 +128,17 @@ When deploying a new commit:
 
 ### Current Expected Commit
 
-**Production should be on commit: `787467b`**
+**Production should be on commit: `7a4d28a`**
 
 This commit includes:
-- ✅ Issue #1A: DELETE source error handling
+- ✅ Comprehensive page debug capture (status, timing, headers, body snippet)
+- ✅ Strict bot detection (only HTTP {401,403,429,503} or keyword matches)
+- ✅ Debug mode support (disable auto-pause via settings_json["debug"]=true)
+- ✅ block_reason strings (http_status:403, keyword_match:cloudflare, etc.)
+- ✅ All diagnostics stored in run.debug_json
+
+Previous fixes also included:
+- ✅ Issue #1A: DELETE source CASCADE handling (Core DELETE + passive_deletes)
 - ✅ Issue #1B: CORS headers on all errors
 - ✅ Issue #2: Proxy from Proxy Pool applied correctly
 - ✅ Issue #3: Conservative bot detection (no false BLOCKED on 200)
