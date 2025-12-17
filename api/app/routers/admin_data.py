@@ -104,8 +104,8 @@ def update_source(
 
 class SourceDetectRequest(BaseModel):
     url: Optional[str] = None
-    try_proxy: bool = False
-    try_playwright: bool = False
+    try_proxy: Optional[bool] = None
+    try_playwright: Optional[bool] = None
 
 
 @router.post("/sources/{source_id}/detect")
@@ -126,13 +126,26 @@ def detect_source(
     if not db_source:
         raise HTTPException(status_code=404, detail="Source not found")
 
+    settings_json = db_source.settings_json or {}
+    targets = settings_json.get("targets") if isinstance(settings_json.get("targets"), dict) else {}
+    default_url = targets.get("test_url") if isinstance(targets.get("test_url"), str) else None
+    fetch_cfg = settings_json.get("fetch") if isinstance(settings_json.get("fetch"), dict) else {}
+
+    use_proxy = request.try_proxy if request.try_proxy is not None else bool(fetch_cfg.get("use_proxy"))
+    use_playwright = request.try_playwright if request.try_playwright is not None else bool(fetch_cfg.get("use_playwright"))
+    timeout_s_raw = fetch_cfg.get("timeout_s")
+    timeout_s = float(timeout_s_raw) if isinstance(timeout_s_raw, (int, float)) else float(getattr(db_source, "timeout_seconds", 15) or 15)
+    headers = fetch_cfg.get("headers") if isinstance(fetch_cfg.get("headers"), dict) else None
+
     try:
         report = source_detect_service.detect_source(
             db=db,
             source=db_source,
-            url_override=request.url,
-            try_proxy=request.try_proxy,
-            try_playwright=request.try_playwright,
+            url_override=request.url or default_url,
+            use_proxy=use_proxy,
+            use_playwright=use_playwright,
+            timeout_s=timeout_s,
+            headers=headers,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

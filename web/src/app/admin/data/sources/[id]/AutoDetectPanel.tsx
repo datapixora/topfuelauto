@@ -23,6 +23,7 @@ type DetectReport = {
   fingerprints?: Record<string, boolean>;
   candidates?: DetectCandidate[];
   detected_strategy?: string | null;
+  suggested_settings_patch?: Record<string, any>;
   attempts?: Array<{ method?: string }>;
 };
 
@@ -41,13 +42,22 @@ export default function AutoDetectPanel(props: {
     return typeof s === "string" ? s : "";
   }, [props.initialSettingsJson, initialReport]);
 
+  const initialFetch = useMemo(() => {
+    const fetchCfg = props.initialSettingsJson?.fetch;
+    return {
+      useProxy: typeof fetchCfg?.use_proxy === "boolean" ? fetchCfg.use_proxy : false,
+      usePlaywright: typeof fetchCfg?.use_playwright === "boolean" ? fetchCfg.use_playwright : true,
+    };
+  }, [props.initialSettingsJson]);
+
   const [detectUrl, setDetectUrl] = useState("");
-  const [detectTryProxy, setDetectTryProxy] = useState(false);
-  const [detectTryPlaywright, setDetectTryPlaywright] = useState(true);
+  const [detectTryProxy, setDetectTryProxy] = useState(initialFetch.useProxy);
+  const [detectTryPlaywright, setDetectTryPlaywright] = useState(initialFetch.usePlaywright);
   const [detectLoading, setDetectLoading] = useState(false);
   const [detectResult, setDetectResult] = useState<DetectReport | null>(initialReport);
   const [selectedStrategy, setSelectedStrategy] = useState<string>(initialDetectedStrategy);
   const [applyingStrategy, setApplyingStrategy] = useState(false);
+  const [applyingSuggested, setApplyingSuggested] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -57,6 +67,11 @@ export default function AutoDetectPanel(props: {
   useEffect(() => {
     setSelectedStrategy(initialDetectedStrategy);
   }, [initialDetectedStrategy]);
+
+  useEffect(() => {
+    setDetectTryProxy(initialFetch.useProxy);
+    setDetectTryPlaywright(initialFetch.usePlaywright);
+  }, [initialFetch.useProxy, initialFetch.usePlaywright]);
 
   const handleDetect = async () => {
     setDetectLoading(true);
@@ -93,6 +108,21 @@ export default function AutoDetectPanel(props: {
     }
   };
 
+  const handleApplySuggested = async () => {
+    const patch = detectResult?.suggested_settings_patch;
+    if (!patch || typeof patch !== "object") return;
+    setApplyingSuggested(true);
+    setLocalError(null);
+    try {
+      await updateDataSource(props.sourceId, { settings_json: patch });
+      router.refresh();
+    } catch (e: any) {
+      setLocalError(e.message || "Apply suggested template failed");
+    } finally {
+      setApplyingSuggested(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
@@ -122,7 +152,9 @@ export default function AutoDetectPanel(props: {
               placeholder="https://example.com/listings"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
             />
-            <p className="text-xs text-slate-500 mt-1">Leave blank to use the source base URL.</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Leave blank to use settings_json.targets.test_url (if set) or the source base URL.
+            </p>
           </div>
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-wide text-slate-400">Options</div>
@@ -233,6 +265,13 @@ export default function AutoDetectPanel(props: {
                 <Button variant="primary" onClick={handleApplyStrategy} disabled={applyingStrategy || !selectedStrategy}>
                   {applyingStrategy ? "Applying..." : "Apply"}
                 </Button>
+                <Button
+                  variant="ghost"
+                  onClick={handleApplySuggested}
+                  disabled={applyingSuggested || !detectResult?.suggested_settings_patch}
+                >
+                  {applyingSuggested ? "Applying..." : "Apply Suggested Template"}
+                </Button>
               </div>
 
               {detectResult?.attempts && (
@@ -249,4 +288,3 @@ export default function AutoDetectPanel(props: {
     </Card>
   );
 }
-

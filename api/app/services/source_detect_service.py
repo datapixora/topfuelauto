@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import logging
 
 import httpx
+from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
 from app.models.admin_source import AdminSource
@@ -69,9 +70,16 @@ def _detect_block(status_code: Optional[int], final_url: str, html: str) -> Tupl
 
 def _compute_fingerprints(html: str) -> dict:
     lower = (html or "").lower()
+    jsonld = False
+    try:
+        soup = BeautifulSoup(html or "", "lxml")
+        jsonld = any((tag.get("type") or "").lower() == "application/ld+json" for tag in soup.find_all("script"))
+    except Exception:
+        # Fallback to substring check if parser errors for any reason.
+        jsonld = "application/ld+json" in lower
     return {
         "next_data": "__next_data__" in lower,
-        "jsonld": "application/ld+json" in lower,
+        "jsonld": jsonld,
         "wp": "wp-content" in lower,
         "woocommerce": "woocommerce" in lower,
         "shopify": ("cdn.shopify.com" in lower) or ("Shopify" in (html or "")),
@@ -162,8 +170,14 @@ def _choose_better_attempt(a: Tuple[FetchAttempt, str], b: Tuple[FetchAttempt, s
     return a
 
 
-def _httpx_fetch(url: str, proxy_url: Optional[str] = None, timeout_seconds: float = 15.0) -> Tuple[FetchAttempt, str]:
-    headers = {
+def _httpx_fetch(
+    url: str,
+    proxy_url: Optional[str] = None,
+    *,
+    timeout_seconds: float = 15.0,
+    headers: Optional[dict] = None,
+) -> Tuple[FetchAttempt, str]:
+    request_headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -172,10 +186,12 @@ def _httpx_fetch(url: str, proxy_url: Optional[str] = None, timeout_seconds: flo
         "Accept-Language": "en-US,en;q=0.5",
         "Cache-Control": "no-cache",
     }
+    if isinstance(headers, dict):
+        request_headers.update({k: str(v) for k, v in headers.items() if v is not None})
 
     client_kwargs: dict[str, Any] = {
         "follow_redirects": True,
-        "timeout": httpx.Timeout(timeout_seconds),
+        "timeout": httpx.Timeout(float(timeout_seconds)),
     }
     if proxy_url:
         client_kwargs["proxy"] = proxy_url
@@ -186,7 +202,7 @@ def _httpx_fetch(url: str, proxy_url: Optional[str] = None, timeout_seconds: flo
 
     try:
         with httpx.Client(**client_kwargs) as client:
-            resp = client.get(url, headers=headers)
+            resp = client.get(url, headers=request_headers)
             status_code = resp.status_code
             final_url = str(resp.url)
             html = resp.text or ""
@@ -237,7 +253,13 @@ def _parse_playwright_proxy(proxy_url: str) -> Optional[dict]:
     return proxy
 
 
-def _playwright_fetch(url: str, proxy_url: Optional[str] = None, timeout_ms: int = 15000) -> Tuple[FetchAttempt, str]:
+def _playwright_fetch(
+    url: str,
+    proxy_url: Optional[str] = None,
+    *,
+    timeout_ms: int = 15000,
+    headers: Optional[dict] = None,
+) -> Tuple[FetchAttempt, str]:
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception as e:
@@ -259,11 +281,26 @@ def _playwright_fetch(url: str, proxy_url: Optional[str] = None, timeout_ms: int
     final_url: Optional[str] = None
 
     proxy_cfg = _parse_playwright_proxy(proxy_url) if proxy_url else None
+    user_agent: Optional[str] = None
+    extra_headers: dict[str, str] = {}
+    if isinstance(headers, dict):
+        for k, v in headers.items():
+            if v is None:
+                continue
+            if str(k).lower() == "user-agent":
+                user_agent = str(v)
+            else:
+                extra_headers[str(k)] = str(v)
 
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, proxy=proxy_cfg)
-            context = browser.new_context(ignore_https_errors=True)
+            context_kwargs: dict[str, Any] = {"ignore_https_errors": True}
+            if user_agent:
+                context_kwargs["user_agent"] = user_agent
+            if extra_headers:
+                context_kwargs["extra_http_headers"] = extra_headers
+            context = browser.new_context(**context_kwargs)
             page = context.new_page()
             response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             status_code = response.status if response else None
@@ -341,8 +378,11 @@ def detect_source(
     db: Session,
     source: AdminSource,
     url_override: Optional[str] = None,
-    try_proxy: bool = False,
-    try_playwright: bool = False,
+    *,
+    use_proxy: bool = False,
+    use_playwright: bool = False,
+    timeout_s: float = 15.0,
+    headers: Optional[dict] = None,
 ) -> dict:
     target_url = (url_override or source.base_url or "").strip()
     if not target_url:
@@ -352,7 +392,7 @@ def detect_source(
 
     attempts: list[FetchAttempt] = []
 
-    best_attempt, best_html = _httpx_fetch(target_url)
+    best_attempt, best_html = _httpx_fetch(target_url, timeout_seconds=timeout_s, headers=headers)
     attempts.append(best_attempt)
 
     def should_fallback(attempt: FetchAttempt) -> bool:
@@ -365,10 +405,15 @@ def detect_source(
         return False
 
     proxy_url: Optional[str] = None
-    if try_proxy and should_fallback(best_attempt):
+    if use_proxy and should_fallback(best_attempt):
         proxy_url = _resolve_proxy_url(db, source)
         if proxy_url:
-            proxy_attempt, proxy_html = _httpx_fetch(target_url, proxy_url=proxy_url)
+            proxy_attempt, proxy_html = _httpx_fetch(
+                target_url,
+                proxy_url=proxy_url,
+                timeout_seconds=timeout_s,
+                headers=headers,
+            )
             attempts.append(proxy_attempt)
             best_attempt, best_html = _choose_better_attempt((best_attempt, best_html), (proxy_attempt, proxy_html))
         else:
@@ -384,8 +429,13 @@ def detect_source(
                 )
             )
 
-    if try_playwright and should_fallback(best_attempt):
-        pw_attempt, pw_html = _playwright_fetch(target_url, proxy_url=proxy_url if try_proxy else None)
+    if use_playwright and should_fallback(best_attempt):
+        pw_attempt, pw_html = _playwright_fetch(
+            target_url,
+            proxy_url=proxy_url if use_proxy else None,
+            timeout_ms=int(float(timeout_s) * 1000),
+            headers=headers,
+        )
         attempts.append(pw_attempt)
         best_attempt, best_html = _choose_better_attempt((best_attempt, best_html), (pw_attempt, pw_html))
 
@@ -393,6 +443,30 @@ def detect_source(
     candidates = _build_candidates(fingerprints)
     best_candidate = _pick_best_candidate(candidates)
     detected_strategy = best_candidate["strategy_key"] if best_candidate else "generic_html_list"
+
+    final_url = best_attempt.final_url or target_url
+    suggested_settings_patch: dict[str, Any] = {
+        "targets": {"test_url": final_url},
+        "fetch": {
+            "use_proxy": bool(use_proxy),
+            "use_playwright": bool(use_playwright),
+            "timeout_s": float(timeout_s),
+        },
+        "detected_strategy": detected_strategy,
+        "extract": {
+            "strategy": detected_strategy,
+            "list": {"item_selector": "", "next_page_selector": ""},
+            "fields": {
+                "title": {"selector": "", "attr": "text"},
+                "price": {"selector": "", "attr": "text"},
+                "url": {"selector": "", "attr": "href"},
+                "image": {"selector": "", "attr": "src"},
+            },
+            "normalize": {},
+        },
+    }
+    if isinstance(headers, dict) and headers:
+        suggested_settings_patch["fetch"]["headers"] = headers
 
     snippet = (best_html or "")[:200]
     report = {
@@ -411,6 +485,7 @@ def detect_source(
         "fingerprints": fingerprints,
         "candidates": candidates,
         "detected_strategy": detected_strategy,
+        "suggested_settings_patch": suggested_settings_patch,
         "attempts": [
             {
                 "method": a.method,
@@ -425,4 +500,3 @@ def detect_source(
         ],
     }
     return report
-

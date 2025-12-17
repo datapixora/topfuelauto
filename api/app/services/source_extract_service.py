@@ -31,10 +31,12 @@ def _normalize_extract_config(extract: dict) -> dict:
     }
     """
     if not isinstance(extract, dict):
-        return {"list": {}, "fields": {}}
+        return {"strategy": None, "list": {}, "fields": {}, "normalize": {}}
 
+    strategy = extract.get("strategy") if isinstance(extract.get("strategy"), str) else None
     list_cfg = extract.get("list") if isinstance(extract.get("list"), dict) else {}
     fields_cfg = extract.get("fields") if isinstance(extract.get("fields"), dict) else {}
+    normalize_cfg = extract.get("normalize") if isinstance(extract.get("normalize"), dict) else {}
 
     # Back-compat: allow top-level item_selector/next_page_selector
     if "item_selector" in extract and "item_selector" not in list_cfg:
@@ -42,7 +44,7 @@ def _normalize_extract_config(extract: dict) -> dict:
     if "next_page_selector" in extract and "next_page_selector" not in list_cfg:
         list_cfg = {**list_cfg, "next_page_selector": extract.get("next_page_selector")}
 
-    return {"list": list_cfg, "fields": fields_cfg}
+    return {"strategy": strategy, "list": list_cfg, "fields": fields_cfg, "normalize": normalize_cfg}
 
 
 def _should_fallback(attempt: source_detect_service.FetchAttempt) -> bool:
@@ -60,7 +62,10 @@ def fetch_html_for_source(
     source: AdminSource,
     url: str,
     *,
-    try_playwright: bool = False,
+    use_proxy: bool = False,
+    use_playwright: bool = False,
+    timeout_s: float = 15.0,
+    headers: Optional[dict] = None,
 ) -> FetchResult:
     """
     Fetch HTML for a source using the same robust approach as detect:
@@ -70,14 +75,23 @@ def fetch_html_for_source(
     """
     errors: list[str] = []
 
-    best_attempt, best_html = source_detect_service._httpx_fetch(url)  # noqa: SLF001
+    best_attempt, best_html = source_detect_service._httpx_fetch(  # noqa: SLF001
+        url,
+        timeout_seconds=timeout_s,
+        headers=headers,
+    )
     attempts: list[source_detect_service.FetchAttempt] = [best_attempt]
 
     proxy_url: Optional[str] = None
-    if _should_fallback(best_attempt):
+    if use_proxy and _should_fallback(best_attempt):
         proxy_url = source_detect_service._resolve_proxy_url(db, source)  # noqa: SLF001
         if proxy_url:
-            proxy_attempt, proxy_html = source_detect_service._httpx_fetch(url, proxy_url=proxy_url)  # noqa: SLF001
+            proxy_attempt, proxy_html = source_detect_service._httpx_fetch(  # noqa: SLF001
+                url,
+                proxy_url=proxy_url,
+                timeout_seconds=timeout_s,
+                headers=headers,
+            )
             attempts.append(proxy_attempt)
             best_attempt, best_html = source_detect_service._choose_better_attempt(  # noqa: SLF001
                 (best_attempt, best_html),
@@ -86,8 +100,13 @@ def fetch_html_for_source(
         else:
             errors.append("proxy_not_configured")
 
-    if try_playwright and _should_fallback(best_attempt):
-        pw_attempt, pw_html = source_detect_service._playwright_fetch(url, proxy_url=proxy_url)  # noqa: SLF001
+    if use_playwright and _should_fallback(best_attempt):
+        pw_attempt, pw_html = source_detect_service._playwright_fetch(  # noqa: SLF001
+            url,
+            proxy_url=proxy_url if use_proxy else None,
+            timeout_ms=int(float(timeout_s) * 1000),
+            headers=headers,
+        )
         attempts.append(pw_attempt)
         best_attempt, best_html = source_detect_service._choose_better_attempt(  # noqa: SLF001
             (best_attempt, best_html),
@@ -145,16 +164,19 @@ def extract_generic_html_list(html: str, extract: dict, *, base_url: Optional[st
     errors: list[str] = []
     cfg = _normalize_extract_config(extract or {})
 
+    if cfg.get("strategy") and cfg.get("strategy") != "generic_html_list":
+        errors.append(f"extract.strategy is '{cfg.get('strategy')}', expected 'generic_html_list'")
+
     item_selector = (cfg.get("list") or {}).get("item_selector")
     if not isinstance(item_selector, str) or not item_selector.strip():
-        return 0, [], ["Missing extract.list.item_selector"]
+        return 0, [], [*errors, "Missing extract.list.item_selector"]
 
     soup = BeautifulSoup(html or "", "lxml")
 
     try:
         item_nodes = soup.select(item_selector)
     except Exception as e:
-        return 0, [], [f"Invalid item_selector: {type(e).__name__}: {str(e)}"]
+        return 0, [], [*errors, f"Invalid item_selector: {type(e).__name__}: {str(e)}"]
 
     fields: dict = cfg.get("fields") or {}
     items_preview: list[dict] = []
@@ -191,12 +213,28 @@ def test_extract(
     if not extract_cfg:
         raise ValueError("Missing extract config (provide body.extract or set source.settings_json.extract)")
 
-    target_url = (url_override or source.base_url or "").strip()
+    targets = settings.get("targets") if isinstance(settings.get("targets"), dict) else {}
+    settings_test_url = targets.get("test_url") if isinstance(targets.get("test_url"), str) else None
+    target_url = (url_override or settings_test_url or source.base_url or "").strip()
     if not target_url:
         raise ValueError("Missing URL (source.base_url empty and no override provided)")
 
-    try_playwright = bool(settings.get("try_playwright") or settings.get("extract_try_playwright"))
-    fetch_res = fetch_html_for_source(db, source, target_url, try_playwright=try_playwright)
+    fetch_cfg = settings.get("fetch") if isinstance(settings.get("fetch"), dict) else {}
+    use_proxy = bool(fetch_cfg.get("use_proxy"))
+    use_playwright = bool(fetch_cfg.get("use_playwright"))
+    timeout_s_raw = fetch_cfg.get("timeout_s")
+    timeout_s = float(timeout_s_raw) if isinstance(timeout_s_raw, (int, float)) else float(getattr(source, "timeout_seconds", 15) or 15)
+    headers = fetch_cfg.get("headers") if isinstance(fetch_cfg.get("headers"), dict) else None
+
+    fetch_res = fetch_html_for_source(
+        db,
+        source,
+        target_url,
+        use_proxy=use_proxy,
+        use_playwright=use_playwright,
+        timeout_s=timeout_s,
+        headers=headers,
+    )
 
     items_found, items_preview, extract_errors = extract_generic_html_list(
         fetch_res.html,
@@ -211,4 +249,3 @@ def test_extract(
         "items_preview": items_preview,
         "errors": errors,
     }
-

@@ -1,23 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { Button } from "../../../../../components/ui/button";
 import { Table, TBody, TD, TH, THead, TR } from "../../../../../components/ui/table";
 import { testExtractDataSource, updateDataSource } from "../../../../../lib/api";
 
 type ExtractConfig = {
+  strategy: string;
   list: {
     item_selector: string;
     next_page_selector?: string;
   };
-  fields: Record<
-    string,
-    {
-      selector: string;
-      attr?: string;
-    }
-  >;
+  fields: {
+    title?: { selector: string; attr?: string };
+    price?: { selector: string; attr?: string };
+    url?: { selector: string; attr?: string };
+    image?: { selector: string; attr?: string };
+  };
+  normalize?: Record<string, any>;
 };
 
 type TestExtractResponse = {
@@ -33,8 +35,10 @@ type TestExtractResponse = {
 };
 
 const normalizeExtract = (raw: any): ExtractConfig => {
+  const strategy = typeof raw?.strategy === "string" ? raw.strategy : "generic_html_list";
   const list = (raw?.list && typeof raw.list === "object") ? raw.list : {};
   const fields = (raw?.fields && typeof raw.fields === "object") ? raw.fields : {};
+  const normalize = (raw?.normalize && typeof raw.normalize === "object") ? raw.normalize : {};
 
   const item_selector = typeof list.item_selector === "string" ? list.item_selector : (typeof raw?.item_selector === "string" ? raw.item_selector : "");
   const next_page_selector =
@@ -43,11 +47,13 @@ const normalizeExtract = (raw: any): ExtractConfig => {
       : (typeof raw?.next_page_selector === "string" ? raw.next_page_selector : "");
 
   return {
+    strategy,
     list: {
       item_selector,
       ...(next_page_selector ? { next_page_selector } : {}),
     },
     fields: fields as any,
+    normalize,
   };
 };
 
@@ -55,9 +61,17 @@ export default function ExtractorTemplatePanel(props: {
   sourceId: number;
   initialSettingsJson?: Record<string, any> | null;
 }) {
+  const router = useRouter();
+
   const detectedStrategy = useMemo(() => {
     const s = props.initialSettingsJson?.detected_strategy;
     return typeof s === "string" ? s : "";
+  }, [props.initialSettingsJson]);
+
+  const initialTestUrl = useMemo(() => {
+    const targets = props.initialSettingsJson?.targets;
+    const val = targets?.test_url;
+    return typeof val === "string" ? val : "";
   }, [props.initialSettingsJson]);
 
   const initialExtract = useMemo(
@@ -65,6 +79,7 @@ export default function ExtractorTemplatePanel(props: {
     [props.initialSettingsJson]
   );
 
+  const [testUrl, setTestUrl] = useState(initialTestUrl);
   const [itemSelector, setItemSelector] = useState(initialExtract.list.item_selector || "");
   const [nextPageSelector, setNextPageSelector] = useState(initialExtract.list.next_page_selector || "");
   const [titleSelector, setTitleSelector] = useState(
@@ -86,6 +101,7 @@ export default function ExtractorTemplatePanel(props: {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setTestUrl(initialTestUrl);
     const next = normalizeExtract(props.initialSettingsJson?.extract || {});
     setItemSelector(next.list.item_selector || "");
     setNextPageSelector(next.list.next_page_selector || "");
@@ -93,19 +109,21 @@ export default function ExtractorTemplatePanel(props: {
     setPriceSelector((next.fields?.price?.selector as string) || "");
     setUrlSelector((next.fields?.url?.selector as string) || "");
     setImageSelector((next.fields?.image?.selector as string) || "");
-  }, [props.initialSettingsJson]);
+  }, [props.initialSettingsJson, initialTestUrl]);
 
   const buildConfig = (): ExtractConfig => ({
+    strategy: "generic_html_list",
     list: {
       item_selector: itemSelector,
       ...(nextPageSelector ? { next_page_selector: nextPageSelector } : {}),
     },
     fields: {
-      ...(titleSelector ? { title: { selector: titleSelector, attr: "text" } } : {}),
-      ...(priceSelector ? { price: { selector: priceSelector, attr: "text" } } : {}),
-      ...(urlSelector ? { url: { selector: urlSelector, attr: "href" } } : {}),
-      ...(imageSelector ? { image: { selector: imageSelector, attr: "src" } } : {}),
+      title: { selector: titleSelector, attr: "text" },
+      price: { selector: priceSelector, attr: "text" },
+      url: { selector: urlSelector, attr: "href" },
+      image: { selector: imageSelector, attr: "src" },
     },
+    normalize: {},
   });
 
   const handleTest = async () => {
@@ -113,6 +131,7 @@ export default function ExtractorTemplatePanel(props: {
     setError(null);
     try {
       const res = (await testExtractDataSource(props.sourceId, {
+        url: testUrl.trim() || undefined,
         extract: buildConfig(),
       })) as TestExtractResponse;
       setResult(res);
@@ -127,10 +146,17 @@ export default function ExtractorTemplatePanel(props: {
     setSaving(true);
     setError(null);
     try {
+      const existingTargets = (props.initialSettingsJson?.targets && typeof props.initialSettingsJson.targets === "object")
+        ? props.initialSettingsJson.targets
+        : {};
       await updateDataSource(props.sourceId, {
-        settings_json: { extract: buildConfig() },
+        settings_json: {
+          targets: { ...existingTargets, test_url: testUrl.trim() || null },
+          extract: buildConfig(),
+        },
       });
       setResult((prev) => prev); // keep preview
+      router.refresh();
     } catch (e: any) {
       setError(e.message || "Save failed");
     } finally {
@@ -166,6 +192,18 @@ export default function ExtractorTemplatePanel(props: {
             Error: {error}
           </div>
         )}
+
+        <div>
+          <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1">Test URL</label>
+          <input
+            type="text"
+            value={testUrl}
+            onChange={(e) => setTestUrl(e.target.value)}
+            placeholder="https://example.com/listings"
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+          />
+          <p className="text-xs text-slate-500 mt-1">Used for detect and for “Test Extract”.</p>
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <div>
@@ -322,4 +360,3 @@ export default function ExtractorTemplatePanel(props: {
     </Card>
   );
 }
-
