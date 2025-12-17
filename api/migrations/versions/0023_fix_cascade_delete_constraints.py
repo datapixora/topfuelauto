@@ -27,106 +27,81 @@ def upgrade() -> None:
     2. admin_runs ← staged_listings.run_id (CASCADE)
     3. staged_listings ← staged_listing_attributes.staged_listing_id (CASCADE)
 
-    This migration is idempotent - safe to run even if constraints already correct.
+    This migration is idempotent - uses DROP CONSTRAINT IF EXISTS.
     """
-    connection = op.get_bind()
-
-    # Helper function to check if constraint exists
-    def constraint_exists(table_name: str, constraint_name: str) -> bool:
-        result = connection.execute(sa.text("""
-            SELECT EXISTS (
-                SELECT 1 FROM pg_constraint
-                WHERE conname = :constraint_name
-                AND conrelid = :table_name::regclass
-            )
-        """), {"constraint_name": constraint_name, "table_name": table_name})
-        return result.scalar()
-
-    # 1. Fix admin_runs.source_id -> admin_sources.id
-    # Drop existing constraint (try both auto-generated and custom names)
-    for constraint_name in ["admin_runs_source_id_fkey", "fk_admin_runs_source"]:
-        if constraint_exists("admin_runs", constraint_name):
-            op.drop_constraint(constraint_name, "admin_runs", type_="foreignkey")
-
-    # Re-create with CASCADE
+    # 1) admin_runs.source_id -> admin_sources.id
+    op.execute("ALTER TABLE admin_runs DROP CONSTRAINT IF EXISTS admin_runs_source_id_fkey")
+    op.execute("ALTER TABLE admin_runs DROP CONSTRAINT IF EXISTS fk_admin_runs_source")
     op.create_foreign_key(
         "fk_admin_runs_source",
         "admin_runs",
         "admin_sources",
         ["source_id"],
         ["id"],
-        ondelete="CASCADE"
+        ondelete="CASCADE",
     )
 
-    # 2. Fix staged_listings.run_id -> admin_runs.id
-    # Drop existing constraint
-    for constraint_name in ["staged_listings_run_id_fkey", "fk_staged_listings_run"]:
-        if constraint_exists("staged_listings", constraint_name):
-            op.drop_constraint(constraint_name, "staged_listings", type_="foreignkey")
-
-    # Re-create with CASCADE
+    # 2) staged_listings.run_id -> admin_runs.id
+    op.execute("ALTER TABLE staged_listings DROP CONSTRAINT IF EXISTS staged_listings_run_id_fkey")
+    op.execute("ALTER TABLE staged_listings DROP CONSTRAINT IF EXISTS fk_staged_listings_run")
     op.create_foreign_key(
         "fk_staged_listings_run",
         "staged_listings",
         "admin_runs",
         ["run_id"],
         ["id"],
-        ondelete="CASCADE"
+        ondelete="CASCADE",
     )
 
-    # 3. Fix staged_listing_attributes.staged_listing_id -> staged_listings.id
-    # Drop existing constraint
-    for constraint_name in ["staged_listing_attributes_staged_listing_id_fkey", "fk_staged_listing_attributes_listing"]:
-        if constraint_exists("staged_listing_attributes", constraint_name):
-            op.drop_constraint(constraint_name, "staged_listing_attributes", type_="foreignkey")
-
-    # Re-create with CASCADE
+    # 3) staged_listing_attributes.staged_listing_id -> staged_listings.id
+    op.execute("ALTER TABLE staged_listing_attributes DROP CONSTRAINT IF EXISTS staged_listing_attributes_staged_listing_id_fkey")
+    op.execute("ALTER TABLE staged_listing_attributes DROP CONSTRAINT IF EXISTS fk_staged_listing_attributes_listing")
     op.create_foreign_key(
         "fk_staged_listing_attributes_listing",
         "staged_listing_attributes",
         "staged_listings",
         ["staged_listing_id"],
         ["id"],
-        ondelete="CASCADE"
+        ondelete="CASCADE",
     )
 
 
 def downgrade() -> None:
     """
-    Revert to RESTRICT constraints (not recommended for production).
+    Revert to constraints without CASCADE (not recommended for production).
 
     Note: This removes CASCADE behavior, which could cause future delete failures.
     Only downgrade if absolutely necessary.
     """
-    # 1. Revert admin_runs.source_id constraint
-    op.drop_constraint("fk_admin_runs_source", "admin_runs", type_="foreignkey")
-    op.create_foreign_key(
-        "admin_runs_source_id_fkey",
-        "admin_runs",
-        "admin_sources",
-        ["source_id"],
-        ["id"],
-        ondelete="RESTRICT"  # Default behavior
-    )
-
-    # 2. Revert staged_listings.run_id constraint
-    op.drop_constraint("fk_staged_listings_run", "staged_listings", type_="foreignkey")
-    op.create_foreign_key(
-        "staged_listings_run_id_fkey",
-        "staged_listings",
-        "admin_runs",
-        ["run_id"],
-        ["id"],
-        ondelete="RESTRICT"
-    )
-
-    # 3. Revert staged_listing_attributes.staged_listing_id constraint
-    op.drop_constraint("fk_staged_listing_attributes_listing", "staged_listing_attributes", type_="foreignkey")
+    # 3) Revert staged_listing_attributes constraint
+    op.execute("ALTER TABLE staged_listing_attributes DROP CONSTRAINT IF EXISTS fk_staged_listing_attributes_listing")
     op.create_foreign_key(
         "staged_listing_attributes_staged_listing_id_fkey",
         "staged_listing_attributes",
         "staged_listings",
         ["staged_listing_id"],
         ["id"],
-        ondelete="RESTRICT"
+        ondelete=None,  # Default RESTRICT behavior
+    )
+
+    # 2) Revert staged_listings constraint
+    op.execute("ALTER TABLE staged_listings DROP CONSTRAINT IF EXISTS fk_staged_listings_run")
+    op.create_foreign_key(
+        "staged_listings_run_id_fkey",
+        "staged_listings",
+        "admin_runs",
+        ["run_id"],
+        ["id"],
+        ondelete=None,
+    )
+
+    # 1) Revert admin_runs constraint
+    op.execute("ALTER TABLE admin_runs DROP CONSTRAINT IF EXISTS fk_admin_runs_source")
+    op.create_foreign_key(
+        "admin_runs_source_id_fkey",
+        "admin_runs",
+        "admin_sources",
+        ["source_id"],
+        ["id"],
+        ondelete=None,
     )
