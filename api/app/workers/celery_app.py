@@ -43,3 +43,4 @@ celery_app.conf.timezone = "UTC"
 from app.workers import data_engine  # noqa: F401, E402
 from app.workers import assist  # noqa: F401, E402
 from app.workers import alerts  # noqa: F401, E402
+from app.workers import import_processor  # noqa: F401, E402

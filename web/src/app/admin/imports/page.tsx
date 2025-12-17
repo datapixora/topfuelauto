@@ -37,6 +37,7 @@ export default function ImportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [recentImports, setRecentImports] = useState<AdminImport[]>([]);
+  const [showErrorLog, setShowErrorLog] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -167,6 +168,7 @@ export default function ImportsPage() {
     setColumnMap({});
     setImportStatus(null);
     setError(null);
+    setShowErrorLog(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -365,7 +367,7 @@ export default function ImportsPage() {
 
       {/* Processing Step */}
       {step === "processing" && importStatus && (
-        <Card>
+        <Card className="sticky top-4 z-10 bg-slate-900 border-slate-700 shadow-xl">
           <CardHeader>
             <CardTitle>Processing Import</CardTitle>
           </CardHeader>
@@ -446,11 +448,21 @@ export default function ImportsPage() {
             </div>
 
             {importStatus.error_log && (
-              <div className="bg-slate-900 border border-slate-700 rounded p-3">
-                <div className="text-sm font-medium mb-2">Error Log:</div>
-                <pre className="text-xs text-red-400 overflow-x-auto max-h-48">
-                  {importStatus.error_log}
-                </pre>
+              <div className="bg-slate-900 border border-slate-700 rounded">
+                <button
+                  onClick={() => setShowErrorLog(!showErrorLog)}
+                  className="w-full text-left px-3 py-2 text-sm font-medium hover:bg-slate-800 transition flex items-center justify-between"
+                >
+                  <span>Error Log ({importStatus.error_count} errors)</span>
+                  <span className="text-slate-400">{showErrorLog ? "▼" : "▶"}</span>
+                </button>
+                {showErrorLog && (
+                  <div className="px-3 pb-3">
+                    <pre className="text-xs text-red-400 overflow-x-auto max-h-64 overflow-y-auto">
+                      {importStatus.error_log}
+                    </pre>
+                  </div>
+                )}
               </div>
             )}
 

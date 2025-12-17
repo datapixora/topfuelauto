@@ -11,6 +11,7 @@ const links = [
   { href: "/admin/providers", label: "Providers" },
   { href: "/admin/proxies", label: "Proxies" },
   { href: "/admin/data/sources", label: "Data Engine" },
+  { href: "/admin/imports", label: "Imports" },
 ];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
