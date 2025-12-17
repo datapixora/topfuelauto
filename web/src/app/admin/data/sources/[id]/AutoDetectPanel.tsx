@@ -18,16 +18,29 @@ type DetectReport = {
   used_url?: string | null;
   fetch?: {
     method?: string;
+    title?: string | null;
     status_code?: number | null;
     final_url?: string | null;
     html_len?: number | null;
   };
   snippet?: string | null;
   fingerprints?: Record<string, boolean>;
+  signals?: Record<string, any>;
   candidates?: DetectCandidate[];
   detected_strategy?: string | null;
   suggested_settings_patch?: Record<string, any>;
-  attempts?: Array<{ method?: string }>;
+  attempts?: Array<{
+    chosen_best?: boolean;
+    method?: string;
+    use_proxy?: boolean;
+    status_code?: number | null;
+    final_url?: string | null;
+    html_len?: number | null;
+    title?: string | null;
+    blocked?: boolean;
+    block_reason?: string | null;
+    error?: string | null;
+  }>;
 };
 
 export default function AutoDetectPanel(props: {
@@ -230,6 +243,10 @@ export default function AutoDetectPanel(props: {
                     <span className="text-slate-400">Final URL:</span>
                     <span className="font-mono break-all">{detectResult.fetch?.final_url || "—"}</span>
                   </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-400">Title:</span>
+                    <span className="font-mono break-all">{detectResult.fetch?.title || "—"}</span>
+                  </div>
                 </div>
               </div>
 
@@ -245,6 +262,15 @@ export default function AutoDetectPanel(props: {
                 </div>
               </div>
             </div>
+
+            {detectResult.signals && (
+              <div className="rounded border border-slate-800 bg-slate-900/30 p-3">
+                <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Signals</div>
+                <pre className="m-0 text-xs whitespace-pre-wrap break-words">
+                  {JSON.stringify(detectResult.signals, null, 2)}
+                </pre>
+              </div>
+            )}
 
             <div className="rounded border border-slate-800 bg-slate-950 p-3">
               <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Snippet (first 200 chars)</div>
@@ -298,8 +324,39 @@ export default function AutoDetectPanel(props: {
               </div>
 
               {detectResult?.attempts && (
-                <div className="text-xs text-slate-500">
-                  Attempts: {(detectResult.attempts as any[]).map((a) => a.method).join(", ")}
+                <div className="rounded border border-slate-800 bg-slate-900/30 p-3">
+                  <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Attempts</div>
+                  <div className="space-y-2">
+                    {detectResult.attempts.map((a, idx) => (
+                      <div
+                        key={`${a.method || "attempt"}-${idx}`}
+                        className={
+                          "rounded border p-2 text-xs " +
+                          (a.chosen_best ? "border-green-700 bg-green-900/10" : "border-slate-800 bg-slate-950/30")
+                        }
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-mono">
+                            {a.chosen_best ? "BEST " : ""}
+                            {a.method || "—"}
+                            {a.use_proxy ? " (proxy)" : ""}
+                          </div>
+                          <div className="text-slate-400 font-mono">
+                            status={a.status_code ?? "—"} len={a.html_len ?? "—"}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-slate-500 break-all">{a.final_url || "—"}</div>
+                        {a.title && <div className="mt-1 text-slate-400 break-all">title={a.title}</div>}
+                        {(a.blocked || a.error) && (
+                          <div className="mt-1 text-red-300">
+                            {a.blocked ? `blocked (${a.block_reason || "—"})` : ""}
+                            {a.blocked && a.error ? " | " : ""}
+                            {a.error ? `error: ${a.error}` : ""}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

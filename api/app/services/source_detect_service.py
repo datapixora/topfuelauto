@@ -25,9 +25,11 @@ HTML_TOO_SMALL_THRESHOLD = 1000
 @dataclass(frozen=True)
 class FetchAttempt:
     method: str
+    use_proxy: bool
     status_code: Optional[int]
     final_url: Optional[str]
     html_len: int
+    title: Optional[str]
     blocked: bool
     block_reason: Optional[str]
     error: Optional[str]
@@ -72,17 +74,45 @@ def _detect_block(status_code: Optional[int], final_url: str, html: str) -> Tupl
 
 
 def _compute_fingerprints(html: str) -> dict:
+    signals = _compute_signals(html)
+    return _fingerprints_from_signals(signals)
+
+
+def _iter_json_nodes(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for v in value.values():
+            yield from _iter_json_nodes(v)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_json_nodes(item)
+
+
+def _types_for_jsonld_node(node: dict) -> list[str]:
+    raw = node.get("@type") or node.get("type")
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
+        return [str(x) for x in raw if isinstance(x, (str, int, float))]
+    return []
+
+
+def _compute_signals(html: str) -> dict[str, Any]:
+    """
+    Extract robust detection signals from HTML for Detect v2.
+    """
     lower = (html or "").lower()
 
-    soup: Optional[BeautifulSoup] = None
     try:
         soup = BeautifulSoup(html or "", "lxml")
     except Exception:
         soup = None
 
-    jsonld_present = False
-    jsonld_product = False
-    jsonld_itemlist = False
+    # JSON-LD signals (counts + @type set)
+    jsonld_count = 0
+    jsonld_types: set[str] = set()
+    has_product = False
+    has_itemlist = False
 
     if soup is not None:
         jsonld_scripts = [
@@ -90,26 +120,9 @@ def _compute_fingerprints(html: str) -> dict:
             for tag in soup.find_all("script")
             if (tag.get("type") or "").lower() == "application/ld+json"
         ]
-        jsonld_present = len(jsonld_scripts) > 0
+        jsonld_count = len(jsonld_scripts)
 
-        def iter_json_nodes(value: Any):
-            if isinstance(value, dict):
-                yield value
-                for v in value.values():
-                    yield from iter_json_nodes(v)
-            elif isinstance(value, list):
-                for item in value:
-                    yield from iter_json_nodes(item)
-
-        def types_for_node(node: dict) -> list[str]:
-            raw = node.get("@type") or node.get("type")
-            if isinstance(raw, str):
-                return [raw]
-            if isinstance(raw, list):
-                return [str(x) for x in raw if isinstance(x, (str, int, float))]
-            return []
-
-        for script in jsonld_scripts[:20]:
+        for script in jsonld_scripts[:25]:
             txt = (script.string or script.get_text() or "").strip()
             if not txt:
                 continue
@@ -118,55 +131,168 @@ def _compute_fingerprints(html: str) -> dict:
             except Exception:
                 continue
 
-            for node in iter_json_nodes(data):
+            for node in _iter_json_nodes(data):
                 if not isinstance(node, dict):
                     continue
-                types = [t.lower() for t in types_for_node(node)]
-                if "itemlist" in types:
-                    jsonld_itemlist = True
-                if "product" in types:
-                    jsonld_product = True
+                for t in _types_for_jsonld_node(node):
+                    t_norm = str(t).strip()
+                    if not t_norm:
+                        continue
+                    jsonld_types.add(t_norm)
+                    t_lower = t_norm.lower()
+                    if t_lower == "product":
+                        has_product = True
+                    if t_lower == "itemlist":
+                        has_itemlist = True
 
-    if not jsonld_present:
-        jsonld_present = "application/ld+json" in lower
+    # Backstop detection for malformed html: still treat presence of any ld+json marker as jsonld present.
+    if jsonld_count == 0 and "application/ld+json" in lower:
+        jsonld_count = 1
 
+    # Platform scores
+    wp_score = min(
+        1.0,
+        (0.55 if "wp-content" in lower else 0.0)
+        + (0.35 if "wp-json" in lower else 0.0)
+        + (0.25 if "/wp-admin" in lower else 0.0)
+        + (0.25 if "wordpress" in lower and "generator" in lower else 0.0),
+    )
+
+    woocommerce_score = min(
+        1.0,
+        (0.55 if "woocommerce" in lower else 0.0)
+        + (0.35 if "woocommerce-price-amount" in lower else 0.0)
+        + (0.20 if "add-to-cart" in lower else 0.0)
+        + (0.15 if "wc-" in lower else 0.0),
+    )
+
+    shopify_score = min(
+        1.0,
+        (0.65 if "cdn.shopify.com" in lower else 0.0)
+        + (0.45 if "window.shopify" in lower else 0.0)
+        + (0.20 if "x-shopify" in lower else 0.0)
+        + (0.15 if "shopify.theme" in lower else 0.0),
+    )
+
+    nextjs_score = 0.0
+    if soup is not None and soup.select_one("script#__NEXT_DATA__") is not None:
+        nextjs_score = 1.0
+    elif "__next_data__" in lower:
+        nextjs_score = 0.6
+
+    # Card score: best repeated "item" selector score
+    card_score = 0.0
+    card_best_selector: Optional[str] = None
+    if soup is not None:
+        item_candidates = [
+            "article.product",
+            "li.product",
+            "ul.products li.product",
+            ".products .product",
+            ".product-item",
+            ".product-card",
+            ".productgrid--item",
+            ".grid-product",
+            ".product",
+            ".card",
+            ".listing-item",
+            "[data-product-id]",
+            "[data-id]",
+        ]
+        item_candidates = [*item_candidates, *_candidate_selectors_from_product_links(soup)]
+        for sel in item_candidates:
+            try:
+                nodes = soup.select(sel)
+            except Exception:
+                continue
+            if not nodes:
+                continue
+            score = _score_item_nodes(nodes)
+            if score > card_score:
+                card_score = score
+                card_best_selector = sel
+
+    # Pagination score: simple signals; 0..1
+    pagination_score = 0.0
+    if soup is not None:
+        if soup.select_one("a[rel='next'], link[rel='next']") is not None:
+            pagination_score = 1.0
+        else:
+            hrefs = []
+            try:
+                hrefs = [a.get("href") for a in soup.find_all("a", href=True)[:500]]
+            except Exception:
+                hrefs = []
+            page_hints = sum(
+                1
+                for href in hrefs
+                if isinstance(href, str) and ("page=" in href.lower() or "/page/" in href.lower())
+            )
+            if page_hints >= 5:
+                pagination_score = 0.7
+            elif page_hints >= 1:
+                pagination_score = 0.4
+
+    jsonld_types_list = sorted(jsonld_types)
     return {
-        "nextjs": ("__next_data__" in lower) or (soup is not None and soup.select_one("script#__NEXT_DATA__") is not None),
-        "jsonld": jsonld_present,
-        "jsonld_product": jsonld_product,
-        "jsonld_itemlist": jsonld_itemlist,
-        "wp": ("wp-content" in lower) or ("wp-json" in lower),
-        "woocommerce": ("woocommerce" in lower) or ("wc-" in lower),
-        "shopify": ("cdn.shopify.com" in lower) or ("window.shopify" in lower) or ("x-shopify" in lower),
+        "jsonld_count": int(jsonld_count),
+        "jsonld_types": jsonld_types_list,
+        "has_Product": bool(has_product),
+        "has_ItemList": bool(has_itemlist),
+        "wp_score": float(wp_score),
+        "woocommerce_score": float(woocommerce_score),
+        "shopify_score": float(shopify_score),
+        "nextjs_score": float(nextjs_score),
+        "card_score": float(card_score),
+        "card_best_item_selector": card_best_selector,
+        "pagination_score": float(pagination_score),
     }
 
 
-def _build_candidates(fingerprints: dict) -> list[dict]:
+def _fingerprints_from_signals(signals: dict[str, Any]) -> dict[str, bool]:
+    jsonld_count = int(signals.get("jsonld_count") or 0)
+    return {
+        "nextjs": float(signals.get("nextjs_score") or 0) >= 0.5,
+        "jsonld": jsonld_count > 0,
+        "jsonld_product": bool(signals.get("has_Product")),
+        "jsonld_itemlist": bool(signals.get("has_ItemList")),
+        "wp": float(signals.get("wp_score") or 0) >= 0.5,
+        "woocommerce": float(signals.get("woocommerce_score") or 0) >= 0.5,
+        "shopify": float(signals.get("shopify_score") or 0) >= 0.5,
+    }
+
+
+def _build_candidates(fingerprints: dict, signals: dict[str, Any]) -> list[dict]:
     candidates: list[dict] = []
 
+    jsonld_count = int(signals.get("jsonld_count") or 0)
     if fingerprints.get("jsonld_itemlist"):
+        conf = min(0.99, 0.88 + (0.02 * min(jsonld_count, 5)))
         candidates.append({
             "strategy_key": "jsonld_itemlist",
-            "confidence": 0.92,
-            "reason": "Found JSON-LD ItemList in application/ld+json.",
+            "confidence": conf,
+            "reason": "JSON-LD types include ItemList (application/ld+json).",
         })
 
     if fingerprints.get("jsonld_product"):
+        conf = min(0.97, 0.84 + (0.02 * min(jsonld_count, 5)))
         candidates.append({
             "strategy_key": "jsonld_product",
-            "confidence": 0.88,
-            "reason": "Found JSON-LD Product in application/ld+json.",
+            "confidence": conf,
+            "reason": "JSON-LD types include Product (application/ld+json).",
         })
 
     if fingerprints.get("nextjs"):
+        nextjs_score = float(signals.get("nextjs_score") or 0)
         candidates.append({
             "strategy_key": "nextjs",
-            "confidence": 0.9,
+            "confidence": min(0.85, 0.55 + 0.30 * nextjs_score),
             "reason": "Found __NEXT_DATA__ marker (Next.js).",
         })
 
     if fingerprints.get("woocommerce"):
-        conf = 0.9 if fingerprints.get("wp") else 0.85
+        woo_score = float(signals.get("woocommerce_score") or 0)
+        conf = min(0.95, 0.3 + 0.7 * woo_score) + (0.03 if fingerprints.get("wp") else 0.0)
         candidates.append({
             "strategy_key": "woocommerce",
             "confidence": conf,
@@ -175,17 +301,19 @@ def _build_candidates(fingerprints: dict) -> list[dict]:
         })
 
     if fingerprints.get("shopify"):
+        shopify_score = float(signals.get("shopify_score") or 0)
         candidates.append({
             "strategy_key": "shopify",
-            "confidence": 0.9,
+            "confidence": min(0.95, 0.3 + 0.7 * shopify_score),
             "reason": "Found Shopify markers (window.Shopify/cdn.shopify.com/x-shopify).",
         })
 
     # Always include a fallback candidate so the UI has a safe default.
+    card_score = float(signals.get("card_score") or 0)
     candidates.append({
         "strategy_key": "generic_html_list",
-        "confidence": 0.2,
-        "reason": "Fallback: generic HTML list parsing.",
+        "confidence": max(0.3, min(0.7, 0.3 + 0.4 * card_score)),
+        "reason": f"Fallback: generic HTML list parsing (card_score={card_score:.2f}).",
     })
 
     return candidates
@@ -211,6 +339,101 @@ def _pick_best_candidate(candidates: list[dict]) -> Optional[dict]:
     )[0]
 
 
+def fetch_best_html(
+    db: Session,
+    source: AdminSource,
+    url: str,
+    *,
+    try_proxy: bool,
+    try_playwright: bool,
+    timeout_s: float,
+    headers: Optional[dict] = None,
+) -> tuple[int, FetchAttempt, str, list[tuple[FetchAttempt, str]]]:
+    """
+    Try multiple fetch modes and pick the best resulting HTML.
+
+    Attempts (in order):
+      1) httpx no proxy
+      2) httpx proxy (if try_proxy=True)
+      3) playwright no proxy (if try_playwright=True)
+      4) playwright proxy (if try_playwright=True and try_proxy=True)
+    """
+    attempts: list[tuple[FetchAttempt, str]] = []
+
+    # 1) httpx no proxy
+    a1, h1 = _httpx_fetch(url, timeout_seconds=timeout_s, headers=headers)
+    attempts.append((a1, h1))
+
+    proxy_url: Optional[str] = _resolve_proxy_url(db, source) if try_proxy else None
+
+    # 2) httpx proxy
+    if try_proxy:
+        if proxy_url:
+            a2, h2 = _httpx_fetch(url, proxy_url=proxy_url, timeout_seconds=timeout_s, headers=headers)
+            attempts.append((a2, h2))
+        else:
+            attempts.append(
+                (
+                    FetchAttempt(
+                        method="httpx",
+                        use_proxy=True,
+                        status_code=None,
+                        final_url=None,
+                        html_len=0,
+                        title=None,
+                        blocked=False,
+                        block_reason=None,
+                        error="proxy_not_configured",
+                    ),
+                    "",
+                )
+            )
+
+    # 3) playwright no proxy
+    if try_playwright:
+        a3, h3 = _playwright_fetch(url, timeout_ms=int(float(timeout_s) * 1000), headers=headers)
+        attempts.append((a3, h3))
+
+    # 4) playwright proxy
+    if try_playwright and try_proxy and proxy_url:
+        a4, h4 = _playwright_fetch(
+            url,
+            proxy_url=proxy_url,
+            timeout_ms=int(float(timeout_s) * 1000),
+            headers=headers,
+        )
+        attempts.append((a4, h4))
+
+    def attempt_score(attempt: FetchAttempt) -> tuple[int, int, int]:
+        """
+        Higher is better.
+        Primary: prefer 200 + not blocked + no error; then <400 + no error; then any non-error; then errors.
+        Secondary: prefer larger html_len.
+        """
+        if attempt.error:
+            return (0, 0, attempt.html_len)
+        blocked_penalty = 0 if not attempt.blocked else -1
+        if attempt.status_code == 200:
+            return (3, blocked_penalty, attempt.html_len)
+        if attempt.status_code is not None and attempt.status_code < 400:
+            return (2, blocked_penalty, attempt.html_len)
+        if not attempt.blocked:
+            return (1, 0, attempt.html_len)
+        return (1, -1, attempt.html_len)
+
+    best_idx = 0
+    best_attempt, best_html = attempts[0]
+    best_score = attempt_score(best_attempt)
+    for idx, (a, h) in enumerate(attempts[1:], start=1):
+        score = attempt_score(a)
+        if score > best_score:
+            best_idx = idx
+            best_attempt, best_html = a, h
+            best_score = score
+
+    return best_idx, best_attempt, best_html, attempts
+
+
 def _choose_better_attempt(a: Tuple[FetchAttempt, str], b: Tuple[FetchAttempt, str]) -> Tuple[FetchAttempt, str]:
     attempt_a, html_a = a
     attempt_b, html_b = b
@@ -231,6 +454,19 @@ def _choose_better_attempt(a: Tuple[FetchAttempt, str], b: Tuple[FetchAttempt, s
     if attempt_b.html_len > attempt_a.html_len:
         return b
     return a
+
+
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+
+def _extract_html_title(html: str) -> Optional[str]:
+    if not html:
+        return None
+    m = _TITLE_RE.search(html)
+    if not m:
+        return None
+    title = re.sub(r"\s+", " ", (m.group(1) or "").strip())
+    return title or None
 
 
 def _httpx_fetch(
@@ -262,6 +498,7 @@ def _httpx_fetch(
     html = ""
     status_code: Optional[int] = None
     final_url: Optional[str] = None
+    title: Optional[str] = None
 
     try:
         with httpx.Client(**client_kwargs) as client:
@@ -269,13 +506,16 @@ def _httpx_fetch(
             status_code = resp.status_code
             final_url = str(resp.url)
             html = resp.text or ""
+            title = _extract_html_title(html)
     except Exception as e:
         logger.info("detect: httpx fetch failed url=%s proxy=%s err=%s", url, bool(proxy_url), str(e))
         attempt = FetchAttempt(
-            method="httpx_proxy" if proxy_url else "httpx",
+            method="httpx",
+            use_proxy=bool(proxy_url),
             status_code=status_code,
             final_url=final_url,
             html_len=0,
+            title=None,
             blocked=False,
             block_reason=None,
             error=f"{type(e).__name__}: {str(e)}",
@@ -284,10 +524,12 @@ def _httpx_fetch(
 
     blocked, block_reason = _detect_block(status_code, final_url or "", html)
     attempt = FetchAttempt(
-        method="httpx_proxy" if proxy_url else "httpx",
+        method="httpx",
+        use_proxy=bool(proxy_url),
         status_code=status_code,
         final_url=final_url,
         html_len=len(html),
+        title=title,
         blocked=blocked,
         block_reason=block_reason,
         error=None,
@@ -329,9 +571,11 @@ def _playwright_fetch(
         return (
             FetchAttempt(
                 method="playwright",
+                use_proxy=bool(proxy_url),
                 status_code=None,
                 final_url=None,
                 html_len=0,
+                title=None,
                 blocked=False,
                 block_reason=None,
                 error=f"playwright_unavailable:{type(e).__name__}",
@@ -342,6 +586,7 @@ def _playwright_fetch(
     html = ""
     status_code: Optional[int] = None
     final_url: Optional[str] = None
+    title: Optional[str] = None
 
     proxy_cfg = _parse_playwright_proxy(proxy_url) if proxy_url else None
     user_agent: Optional[str] = None
@@ -369,15 +614,18 @@ def _playwright_fetch(
             status_code = response.status if response else None
             final_url = page.url
             html = page.content() or ""
+            title = _extract_html_title(html)
             context.close()
             browser.close()
     except Exception as e:
         logger.info("detect: playwright fetch failed url=%s err=%s", url, str(e))
         attempt = FetchAttempt(
             method="playwright",
+            use_proxy=bool(proxy_url),
             status_code=status_code,
             final_url=final_url,
             html_len=0,
+            title=None,
             blocked=False,
             block_reason=None,
             error=f"{type(e).__name__}: {str(e)}",
@@ -387,9 +635,11 @@ def _playwright_fetch(
     blocked, block_reason = _detect_block(status_code, final_url or "", html)
     attempt = FetchAttempt(
         method="playwright",
+        use_proxy=bool(proxy_url),
         status_code=status_code,
         final_url=final_url,
         html_len=len(html),
+        title=title,
         blocked=blocked,
         block_reason=block_reason,
         error=None,
@@ -781,87 +1031,32 @@ def _suggest_jsonld_extract(mode: str) -> dict[str, Any]:
     }
 
 
-def detect_source(
-    db: Session,
-    source: AdminSource,
-    url_override: Optional[str] = None,
-    requested_url: Optional[str] = None,
-    *,
-    use_proxy: bool = False,
-    use_playwright: bool = False,
-    timeout_s: float = 15.0,
-    headers: Optional[dict] = None,
-) -> dict:
-    target_url = (url_override or source.base_url or "").strip()
-    if not target_url:
-        raise ValueError("Missing URL (source.base_url empty and no override provided)")
-    if not _is_http_url(target_url):
-        raise ValueError("Invalid URL (must be http/https)")
+def _select_detected_strategy(signals: dict[str, Any]) -> str:
+    """
+    Detect v2 selection rules.
 
-    attempts: list[FetchAttempt] = []
+    JSON-LD wins when present (structured signals); otherwise fallback to platform markers and then generic.
+    """
+    if signals.get("has_ItemList"):
+        return "jsonld_itemlist"
+    if signals.get("has_Product"):
+        return "jsonld_product"
+    if float(signals.get("shopify_score") or 0) >= 0.6:
+        return "shopify"
+    if float(signals.get("woocommerce_score") or 0) >= 0.6:
+        return "woocommerce"
+    if float(signals.get("nextjs_score") or 0) >= 0.5:
+        return "nextjs"
+    return "generic_html_list"
 
-    best_attempt, best_html = _httpx_fetch(target_url, timeout_seconds=timeout_s, headers=headers)
-    attempts.append(best_attempt)
 
-    def should_fallback(attempt: FetchAttempt) -> bool:
-        if attempt.error:
-            return True
-        if attempt.blocked:
-            return True
-        if attempt.status_code == 200 and attempt.html_len < HTML_TOO_SMALL_THRESHOLD:
-            return True
-        return False
-
-    proxy_url: Optional[str] = None
-    if use_proxy and should_fallback(best_attempt):
-        proxy_url = _resolve_proxy_url(db, source)
-        if proxy_url:
-            proxy_attempt, proxy_html = _httpx_fetch(
-                target_url,
-                proxy_url=proxy_url,
-                timeout_seconds=timeout_s,
-                headers=headers,
-            )
-            attempts.append(proxy_attempt)
-            best_attempt, best_html = _choose_better_attempt((best_attempt, best_html), (proxy_attempt, proxy_html))
-        else:
-            attempts.append(
-                FetchAttempt(
-                    method="httpx_proxy",
-                    status_code=None,
-                    final_url=None,
-                    html_len=0,
-                    blocked=False,
-                    block_reason=None,
-                    error="proxy_not_configured",
-                )
-            )
-
-    if use_playwright and should_fallback(best_attempt):
-        pw_attempt, pw_html = _playwright_fetch(
-            target_url,
-            proxy_url=proxy_url if use_proxy else None,
-            timeout_ms=int(float(timeout_s) * 1000),
-            headers=headers,
-        )
-        attempts.append(pw_attempt)
-        best_attempt, best_html = _choose_better_attempt((best_attempt, best_html), (pw_attempt, pw_html))
-
-    fingerprints = _compute_fingerprints(best_html)
-    candidates = _build_candidates(fingerprints)
-    best_candidate = _pick_best_candidate(candidates)
-    detected_strategy = best_candidate["strategy_key"] if best_candidate else "generic_html_list"
-
-    used_url = best_attempt.final_url or target_url
-    soup = BeautifulSoup(best_html or "", "lxml")
-
-    suggested_extract: dict[str, Any]
+def _suggest_extract_for_strategy(detected_strategy: str, soup: BeautifulSoup, *, used_url: str) -> dict[str, Any]:
     if detected_strategy == "jsonld_itemlist":
-        suggested_extract = _suggest_jsonld_extract("ItemList")
-    elif detected_strategy == "jsonld_product":
-        suggested_extract = _suggest_jsonld_extract("Product")
-    elif detected_strategy == "woocommerce":
-        suggested_extract = _suggest_generic_html_list_extract(
+        return _suggest_jsonld_extract("ItemList")
+    if detected_strategy == "jsonld_product":
+        return _suggest_jsonld_extract("Product")
+    if detected_strategy == "woocommerce":
+        return _suggest_generic_html_list_extract(
             soup,
             used_url=used_url,
             item_selector_candidates=[
@@ -903,8 +1098,8 @@ def detect_source(
                 "a.next",
             ],
         )
-    elif detected_strategy == "shopify":
-        suggested_extract = _suggest_generic_html_list_extract(
+    if detected_strategy == "shopify":
+        suggested = _suggest_generic_html_list_extract(
             soup,
             used_url=used_url,
             item_selector_candidates=[
@@ -947,13 +1142,71 @@ def detect_source(
         try:
             parsed = urlparse(used_url)
             if "/collections/" in (parsed.path or ""):
-                suggested_extract["shopify"] = {
+                suggested["shopify"] = {
                     "products_json_url": urljoin(f"{parsed.scheme}://{parsed.netloc}", f"{parsed.path.rstrip('/')}/products.json")
                 }
         except Exception:
             pass
-    else:
-        suggested_extract = _suggest_generic_html_list_extract(soup, used_url=used_url)
+        return suggested
+
+    # nextjs and generic fallback both use DOM card heuristics for now.
+    return _suggest_generic_html_list_extract(soup, used_url=used_url)
+
+
+def detect_from_html(html: str, *, used_url: str) -> dict[str, Any]:
+    """
+    Pure detection logic for unit tests (no network, no DB).
+    """
+    signals = _compute_signals(html)
+    fingerprints = _fingerprints_from_signals(signals)
+    candidates = _build_candidates(fingerprints, signals)
+    detected_strategy = _select_detected_strategy(signals)
+
+    soup = BeautifulSoup(html or "", "lxml")
+    suggested_extract = _suggest_extract_for_strategy(detected_strategy, soup, used_url=used_url)
+    return {
+        "signals": signals,
+        "fingerprints": fingerprints,
+        "candidates": candidates,
+        "detected_strategy": detected_strategy,
+        "suggested_extract": suggested_extract,
+    }
+
+
+def detect_source(
+    db: Session,
+    source: AdminSource,
+    url_override: Optional[str] = None,
+    requested_url: Optional[str] = None,
+    *,
+    use_proxy: bool = False,
+    use_playwright: bool = False,
+    timeout_s: float = 15.0,
+    headers: Optional[dict] = None,
+) -> dict:
+    target_url = (url_override or source.base_url or "").strip()
+    if not target_url:
+        raise ValueError("Missing URL (source.base_url empty and no override provided)")
+    if not _is_http_url(target_url):
+        raise ValueError("Invalid URL (must be http/https)")
+
+    best_idx, best_attempt, best_html, attempts_with_html = fetch_best_html(
+        db,
+        source,
+        target_url,
+        try_proxy=bool(use_proxy),
+        try_playwright=bool(use_playwright),
+        timeout_s=float(timeout_s),
+        headers=headers,
+    )
+    used_url = best_attempt.final_url or target_url
+
+    analysis = detect_from_html(best_html or "", used_url=used_url)
+    signals = analysis["signals"]
+    fingerprints = analysis["fingerprints"]
+    candidates = analysis["candidates"]
+    detected_strategy = analysis["detected_strategy"]
+    suggested_extract = analysis["suggested_extract"]
 
     suggested_settings_patch: dict[str, Any] = {
         "targets": {"test_url": used_url},
@@ -981,23 +1234,28 @@ def detect_source(
             "status_code": best_attempt.status_code,
             "final_url": best_attempt.final_url,
             "html_len": best_attempt.html_len,
+            "title": best_attempt.title,
         },
         "snippet": snippet,
         "fingerprints": fingerprints,
+        "signals": signals,
         "candidates": candidates,
         "detected_strategy": detected_strategy,
         "suggested_settings_patch": suggested_settings_patch,
         "attempts": [
             {
                 "method": a.method,
+                "use_proxy": a.use_proxy,
                 "status_code": a.status_code,
                 "final_url": a.final_url,
                 "html_len": a.html_len,
+                "title": a.title,
                 "blocked": a.blocked,
                 "block_reason": a.block_reason,
                 "error": a.error,
+                "chosen_best": idx == best_idx,
             }
-            for a in attempts
+            for idx, (a, _h) in enumerate(attempts_with_html)
         ],
     }
     return report

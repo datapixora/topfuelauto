@@ -170,9 +170,6 @@ def extract_generic_html_list(
     errors: list[str] = []
     cfg = _normalize_extract_config(extract or {})
 
-    if cfg.get("strategy") and cfg.get("strategy") != "generic_html_list":
-        errors.append(f"extract.strategy is '{cfg.get('strategy')}', expected 'generic_html_list'")
-
     item_selector = (cfg.get("list") or {}).get("item_selector")
     if not isinstance(item_selector, str) or not item_selector.strip():
         return 0, [], [*errors, "Missing extract.list.item_selector"]
