@@ -1,6 +1,6 @@
 """Fix CASCADE DELETE constraints for admin_sources deletion
 
-Revision ID: 0023_fix_cascade_delete_constraints
+Revision ID: 0023_fix_cascade
 Revises: 0022_fix_pages_planned_zero
 Create Date: 2025-12-17
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = "0023_fix_cascade_delete_constraints"
+revision = "0023_fix_cascade"
 down_revision = "0022_fix_pages_planned_zero"
 branch_labels = None
 depends_on = None
