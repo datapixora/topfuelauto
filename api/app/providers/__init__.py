@@ -2,6 +2,7 @@ from app.core.config import Settings
 from app.providers.marketcheck import MarketCheckProvider
 from app.providers.copart_public import CopartPublicProvider
 from app.providers.web_crawl import WebCrawlOnDemandProvider
+from app.providers.internal_catalog import InternalCatalogProvider
 
 
 def _provider_map(settings: Settings, config_map: dict | None = None):
@@ -10,6 +11,7 @@ def _provider_map(settings: Settings, config_map: dict | None = None):
         "marketcheck": MarketCheckProvider(settings),
         "copart_public": CopartPublicProvider(),
         "web_crawl_on_demand": WebCrawlOnDemandProvider(settings, config=config_map.get("web_crawl_on_demand")),
+        "internal_catalog": InternalCatalogProvider(),
     }
 
 
