@@ -7,6 +7,7 @@ import { Button } from "../../../../../components/ui/button";
 import { getDataSource, listSourceRuns, toggleDataSource, deleteDataSource, runDataSource, updateDataSource, listProxies } from "../../../../../lib/api";
 import { DataSource, DataRun, ProxyEndpoint } from "../../../../../lib/types";
 import AutoDetectPanel from "./AutoDetectPanel";
+import ExtractorTemplatePanel from "./ExtractorTemplatePanel";
 
 export default function SourceDetailPage() {
   const router = useRouter();
@@ -422,6 +423,8 @@ export default function SourceDetailPage() {
       </Card>
 
       <AutoDetectPanel sourceId={sourceId} initialSettingsJson={source.settings_json} />
+
+      <ExtractorTemplatePanel sourceId={sourceId} initialSettingsJson={source.settings_json} />
 
       {source.settings_json && Object.keys(source.settings_json).length > 0 && (
         <Card>

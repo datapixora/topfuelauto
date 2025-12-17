@@ -11,6 +11,7 @@ from app.models.user import User
 from app.schemas import data_engine as schemas
 from app.services import data_engine_service as service
 from app.services import source_detect_service
+from app.services import source_extract_service
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,45 @@ def detect_source(
     db.refresh(db_source)
 
     return report
+
+
+class SourceTestExtractRequest(BaseModel):
+    url: Optional[str] = None
+    extract: Optional[dict] = None
+
+
+@router.post("/sources/{source_id}/test-extract")
+def test_extract(
+    source_id: int,
+    request: SourceTestExtractRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Test a generic HTML extractor config against a live page and return a preview.
+
+    Config resolution:
+      - Uses request.extract if provided
+      - Else uses source.settings_json.extract
+
+    Fetch uses httpx with proxy/playwright fallback if configured on the source.
+    """
+    db_source = service.get_source(db, source_id)
+    if not db_source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    try:
+        return source_extract_service.test_extract(
+            db=db,
+            source=db_source,
+            url_override=request.url,
+            extract_override=request.extract,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Test extract failed for source_id=%s: %s", source_id, str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Test extract failed")
 
 
 @router.delete("/sources/{source_id}", status_code=204)

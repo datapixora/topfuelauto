@@ -448,6 +448,13 @@ export async function detectDataSource(
   return apiPost(`/admin/data/sources/${sourceId}/detect`, payload || {});
 }
 
+export async function testExtractDataSource(
+  sourceId: number,
+  payload?: { url?: string; extract?: any }
+) {
+  return apiPost(`/admin/data/sources/${sourceId}/test-extract`, payload || {});
+}
+
 export async function listSourceRuns(sourceId: number) {
   return apiGet<any[]>(`/admin/data/sources/${sourceId}/runs`);
 }
