@@ -28,55 +28,90 @@ class BlockedResponseError(Exception):
 
 def _detect_block(response: httpx.Response, html: str) -> Tuple[bool, Optional[str]]:
     """
-    Conservative bot-block detection - only mark as blocked with real evidence.
+    Strict bot-block detection - only mark blocked with concrete evidence.
 
-    BLOCKED should only happen when:
-    - Status 403/429/503 with challenge/captcha indicators
-    - Cloudflare/Imperva/Incapsula challenge page detected
-    - Redirect to /cdn-cgi/challenge-platform
+    Mark BLOCKED only when:
+    - HTTP status in {401, 403, 429, 503}
+    - Body matches common block keywords (incapsula, imperva, cloudflare challenge, captcha)
 
-    If status=200 and html_len>5000 and no bot indicators:
-    - Should NOT be marked as blocked
-    - Let caller decide if NO_RESULTS or PARSE_FAILED based on items_found
+    Do NOT mark blocked:
+    - Just because items==0 or selector returned nothing
+    - For legitimate error pages (404, 500)
+    - For status 200 (even if page is empty)
+
+    Returns:
+        (blocked: bool, block_reason: str or None)
+        block_reason format: "http_status:<code>", "keyword_match:<keyword>", "exception:<type>"
     """
     html_len = len(html or "")
     lower = html.lower() if html else ""
     status = response.status_code
     final_url = str(response.url)
 
-    # Strong evidence of blocking
-    if "_incapsula_resource" in lower:
-        return True, "incapsula"
-    if "imperva" in lower and status in (403, 503):
-        return True, "imperva"
+    # Keyword-based blocking (body content analysis)
+    block_keywords = {
+        "_incapsula_resource": "incapsula",
+        "imperva": "imperva",
+        "cloudflare challenge": "cloudflare",
+        "captcha": "captcha",
+        "access denied": "access_denied",
+        "blocked by": "blocked_by",
+        "rate limit": "rate_limit",
+    }
+
+    for keyword, reason_suffix in block_keywords.items():
+        if keyword in lower:
+            return True, f"keyword_match:{reason_suffix}"
+
+    # URL-based blocking (challenge redirects)
     if "/cdn-cgi/challenge-platform" in final_url:
-        return True, "cloudflare_challenge"
-    if "captcha" in lower and status in (403, 429, 503):
-        return True, "captcha"
+        return True, "keyword_match:cloudflare_redirect"
 
-    # Only mark as blocked if status indicates protection AND html is tiny
-    if status in (403, 429, 503):
-        if html_len < 1000:
-            return True, f"status_{status}_short_html"
-        # If 403/429/503 but has substantial content, might be legitimate error page
-        # Don't auto-block, let caller decide
+    # HTTP status-based blocking (only specific codes)
+    if status in (401, 403, 429, 503):
+        return True, f"http_status:{status}"
 
-    # If status 200 with substantial content, never mark as blocked
-    # (even if html_len < 1000, could be legitimate small page)
-    if status == 200:
-        return False, None
-
+    # Status 200 is NEVER blocked (even if empty)
+    # Status 404, 500, etc. are errors but not blocks
+    # Items == 0 is handled by caller (parse failure, not block)
     return False, None
 
 
-def _diagnostic_payload(response: httpx.Response, blocked: bool, block_reason: Optional[str], proxy_used: bool) -> Dict[str, Any]:
+def _diagnostic_payload(
+    response: httpx.Response,
+    blocked: bool,
+    block_reason: Optional[str],
+    proxy_used: bool,
+    elapsed_ms: float,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Comprehensive diagnostic payload for every fetched page.
+
+    Captures:
+    - status_code, final_url, elapsed_ms
+    - content_type, server header, location header
+    - body_len, body_snippet_200 (first 200 chars)
+    - blocked status, block_reason
+    - error string if exception occurred
+    - proxy_used flag
+    """
+    html = response.text or ""
+    headers = response.headers
+
     return {
         "status_code": response.status_code,
         "final_url": str(response.url),
-        "html_len": len(response.text or ""),
+        "elapsed_ms": round(elapsed_ms * 1000, 2),
+        "content_type": headers.get("content-type"),
+        "server": headers.get("server"),
+        "location": headers.get("location"),
+        "body_len": len(html),
+        "body_snippet_200": html[:200] if html else None,
         "blocked": blocked,
         "block_reason": block_reason,
         "proxy_used": proxy_used,
+        "error": error,
     }
 
 
@@ -489,23 +524,23 @@ def _execute_scrape(db: Session, source: Any, run: Any, proxy: Any = None) -> di
                     # Bot-block detection
                     html = response.text
                     blocked, block_reason = _detect_block(response, html)
-                    diagnostics = _diagnostic_payload(response, blocked, block_reason, proxy_used)
+                    diagnostics = _diagnostic_payload(response, blocked, block_reason, proxy_used, fetch_time)
                     diagnostics["cache_hit"] = False
                     debug_info.setdefault("pages", []).append(
                         {"page": page_num, **diagnostics}
                     )
                     if blocked:
                         logger.warning(f"Blocked by bot protection on page {page_num}: {block_reason}")
-                    return {
-                        "blocked": True,
-                        "block_reason": block_reason,
-                        "pages_done": pages_done,
-                        "items_found": items_found,
-                        "items_staged": items_staged,
-                        "debug_info": {**debug_info, "block_reason": block_reason},
-                        "diagnostics": diagnostics,
-                        "proxy_exit_ip": proxy_exit_ip,
-                    }
+                        return {
+                            "blocked": True,
+                            "block_reason": block_reason,
+                            "pages_done": pages_done,
+                            "items_found": items_found,
+                            "items_staged": items_staged,
+                            "debug_info": {**debug_info, "block_reason": block_reason},
+                            "diagnostics": diagnostics,
+                            "proxy_exit_ip": proxy_exit_ip,
+                        }
 
                     # Parse items from page
                     page_items = _parse_list_page(html, source.key)

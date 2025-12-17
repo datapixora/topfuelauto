@@ -161,17 +161,28 @@ def record_block_event(
     cooldown_hours: int = 6,
     threshold: int = 2,
 ) -> None:
-    """Update source after a blocked run with optional cooldown."""
+    """
+    Update source after a blocked run with optional cooldown.
+
+    Cooldown is skipped if source.settings_json["debug"] == true to allow debugging.
+    """
     now = datetime.utcnow()
     source.last_block_reason = block_reason
     source.last_blocked_at = now
     source.failure_count += 1
 
-    # If repeated blocks within window, pause
+    # Check if debug mode is enabled (disables auto-pause for debugging)
+    debug_mode = (source.settings_json or {}).get("debug", False)
+
+    # If repeated blocks within window, pause (unless debug mode)
     if recent_block_count(db, source.id, within_minutes=30) >= threshold - 1:
-        source.cooldown_until = now + timedelta(hours=cooldown_hours)
-        source.next_run_at = source.cooldown_until
-        source.disabled_reason = f"Auto-paused after repeated blocks ({block_reason}) until {source.cooldown_until.isoformat()}Z"
+        if debug_mode:
+            logger.info(f"Debug mode enabled for source {source.key}, skipping auto-pause")
+            source.next_run_at = now + timedelta(minutes=source.schedule_minutes)
+        else:
+            source.cooldown_until = now + timedelta(hours=cooldown_hours)
+            source.next_run_at = source.cooldown_until
+            source.disabled_reason = f"Auto-paused after repeated blocks ({block_reason}) until {source.cooldown_until.isoformat()}Z"
     else:
         # shorter backoff
         source.next_run_at = now + timedelta(minutes=max(source.schedule_minutes * 2, 30))
