@@ -431,13 +431,21 @@ def toggle_source(db: Session, source_id: int) -> Optional[AdminSource]:
 
 def delete_source(db: Session, source_id: int) -> bool:
     """Delete an admin source (and cascade delete runs/items)."""
-    db_source = get_source(db, source_id)
-    if not db_source:
-        return False
+    try:
+        db_source = get_source(db, source_id)
+        if not db_source:
+            logger.warning(f"delete_source: source_id={source_id} not found")
+            return False
 
-    db.delete(db_source)
-    db.commit()
-    return True
+        logger.info(f"Deleting source {source_id} ({db_source.key})")
+        db.delete(db_source)
+        db.commit()
+        logger.info(f"Successfully deleted source {source_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting source {source_id}: {type(e).__name__}: {e}")
+        db.rollback()
+        raise  # Re-raise to let the router handle HTTP response
 
 
 def get_due_sources(db: Session) -> List[AdminSource]:

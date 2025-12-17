@@ -21,7 +21,7 @@ class AdminRun(Base):
     finished_at = Column(DateTime, nullable=True)
 
     # Progress tracking
-    pages_planned = Column(Integer, nullable=False, default=0)
+    pages_planned = Column(Integer, nullable=False, default=1)  # Never 0 to avoid division errors
     pages_done = Column(Integer, nullable=False, default=0)
     items_found = Column(Integer, nullable=False, default=0)
     items_staged = Column(Integer, nullable=False, default=0)

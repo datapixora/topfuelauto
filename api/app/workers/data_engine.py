@@ -28,23 +28,43 @@ class BlockedResponseError(Exception):
 
 def _detect_block(response: httpx.Response, html: str) -> Tuple[bool, Optional[str]]:
     """
-    Lightweight bot-block detection (no bypass).
-    Conditions:
-      - Contains '_Incapsula_Resource' or 'imperva'
-      - meta robots noindex with tiny body
-      - html length < 1000
+    Conservative bot-block detection - only mark as blocked with real evidence.
+
+    BLOCKED should only happen when:
+    - Status 403/429/503 with challenge/captcha indicators
+    - Cloudflare/Imperva/Incapsula challenge page detected
+    - Redirect to /cdn-cgi/challenge-platform
+
+    If status=200 and html_len>5000 and no bot indicators:
+    - Should NOT be marked as blocked
+    - Let caller decide if NO_RESULTS or PARSE_FAILED based on items_found
     """
     html_len = len(html or "")
     lower = html.lower() if html else ""
+    status = response.status_code
+    final_url = str(response.url)
 
+    # Strong evidence of blocking
     if "_incapsula_resource" in lower:
         return True, "incapsula"
-    if "imperva" in lower:
+    if "imperva" in lower and status in (403, 503):
         return True, "imperva"
-    if "noindex" in lower and html_len < 1200:
-        return True, "robots_noindex"
-    if html_len < 1000:
-        return True, "html_too_short"
+    if "/cdn-cgi/challenge-platform" in final_url:
+        return True, "cloudflare_challenge"
+    if "captcha" in lower and status in (403, 429, 503):
+        return True, "captcha"
+
+    # Only mark as blocked if status indicates protection AND html is tiny
+    if status in (403, 429, 503):
+        if html_len < 1000:
+            return True, f"status_{status}_short_html"
+        # If 403/429/503 but has substantial content, might be legitimate error page
+        # Don't auto-block, let caller decide
+
+    # If status 200 with substantial content, never mark as blocked
+    # (even if html_len < 1000, could be legitimate small page)
+    if status == 200:
+        return False, None
 
     return False, None
 
@@ -132,24 +152,32 @@ def run_source_scrape(source_id: int) -> dict:
         proxy_for_run = None
         proxy_id = None
 
-        if source.proxy_mode == "pool":
-            if USE_PROXY_POOL:
-                proxy_for_run = proxy_service.select_proxy_for_run(db)
-                proxy_id = proxy_for_run.id if proxy_for_run else None
-            else:
-                logger.warning(f"Source {source.key} has proxy_mode='pool' but DATA_ENGINE_USE_PROXY_POOL=0")
-                # Fallback to no proxy (could also raise error if desired)
-        # elif source.proxy_mode == "manual": handled in _execute_scrape via settings_json
-        # elif source.proxy_mode == "none": no proxy
+        # Handle ProxyMode enum (uppercase values: NONE, POOL, MANUAL)
+        proxy_mode = str(source.proxy_mode).upper() if source.proxy_mode else "NONE"
 
-        # Create run record
+        if proxy_mode == "POOL":
+            # Use proxy from pool - resolve by source.proxy_id
+            if source.proxy_id:
+                proxy_for_run = proxy_service.get_proxy(db, source.proxy_id)
+                if not proxy_for_run:
+                    logger.error(f"Source {source.key} proxy_id={source.proxy_id} not found")
+                    return {"error": "proxy_not_found", "reason": f"Proxy ID {source.proxy_id} not found"}
+                proxy_id = proxy_for_run.id
+                logger.info(f"Using proxy from pool: {proxy_for_run.name} ({proxy_for_run.host}:{proxy_for_run.port})")
+            else:
+                logger.error(f"Source {source.key} has proxy_mode=POOL but no proxy_id set")
+                return {"error": "proxy_enabled_but_no_proxy_selected", "reason": "Proxy mode is POOL but no proxy selected"}
+        # elif proxy_mode == "MANUAL": handled in _execute_scrape via settings_json
+        # elif proxy_mode == "NONE": no proxy
+
+        # Create run record (ensure pages_planned is never 0 to avoid division errors)
         run = service.create_run(
             db,
             schemas.AdminRunCreate(
                 source_id=source_id,
                 status="running",
                 started_at=datetime.utcnow(),
-                pages_planned=source.max_pages_per_run,
+                pages_planned=max(source.max_pages_per_run, 1),
                 pages_done=0,
                 items_found=0,
                 items_staged=0,
@@ -339,16 +367,21 @@ def _execute_scrape(db: Session, source: Any, run: Any, proxy: Any = None) -> di
 
     proxy_url = None
 
-    # Determine proxy based on source.proxy_mode
-    if source.proxy_mode == "pool" and proxy:
+    # Determine proxy based on source.proxy_mode (uppercase enum values)
+    proxy_mode = str(source.proxy_mode).upper() if source.proxy_mode else "NONE"
+
+    if proxy_mode == "POOL" and proxy:
         # Use proxy from pool (passed in as parameter)
         proxy_url = proxy_service.build_proxy_url(proxy)
         proxy_meta = {
+            "proxy_id": proxy.id,
+            "proxy_name": proxy.name,
             "proxy_host": proxy.host,
             "proxy_port": proxy.port,
-            "proxy_username_masked": proxy_service.mask_username(proxy.username),
+            "proxy_scheme": proxy.scheme,
         }
-    elif source.proxy_mode == "manual":
+        logger.info(f"Using proxy {proxy.name}: {proxy.scheme}://{proxy.host}:{proxy.port}")
+    elif proxy_mode == "MANUAL":
         # Use manual proxy from settings_json
         if settings_json.get("proxy_url"):
             # If proxy_url is provided directly
