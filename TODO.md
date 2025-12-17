@@ -114,6 +114,7 @@
 103. [x] Data Engine: Auto-Detect for Sources - added POST /api/v1/admin/data/sources/{id}/detect (httpx first, optional proxy + Playwright fallback), rule-based fingerprints/candidate strategies, persisted detect_report + detected_strategy to source.settings_json, and added admin UI panel to run detect and apply a chosen strategy.
 104. [x] Data Engine: Generic HTML Extractor Template - added POST /api/v1/admin/data/sources/{id}/test-extract to fetch HTML and preview parsed items (generic_html_list). Added admin UI Extractor Template panel to edit selectors, test extract without saving, and save extract config to source.settings_json.extract.
 105. [x] Data Engine: Normalize Source Settings - introduced settings_json.targets.test_url (used by detect + test-extract), settings_json.fetch (use_proxy/use_playwright/timeout_s/headers), standardized settings_json.extract schema (strategy/list/fields/normalize), detect now returns suggested_settings_patch + UI button to apply it.
+106. [x] Data Engine: Safe Save Template - added POST /api/v1/admin/data/sources/{id}/save-template to validate extractor config (must find items) before persisting settings_json.extract, settings_json.targets.test_url, settings_json.extract_sample, and settings_json.detected_strategy; UI Save Template now calls save-template, shows “Saved ✓”, and offers a Run Now CTA.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)

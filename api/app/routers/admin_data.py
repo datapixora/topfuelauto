@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime
 import httpx
 import logging
 
@@ -202,6 +203,119 @@ def test_extract(
     except Exception as e:
         logger.error("Test extract failed for source_id=%s: %s", source_id, str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Test extract failed")
+
+
+class SourceSaveTemplateRequest(BaseModel):
+    url: str
+    extract: dict
+
+
+@router.post("/sources/{source_id}/save-template")
+def save_template(
+    source_id: int,
+    request: SourceSaveTemplateRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Validate and save a generic HTML extractor template.
+
+    - Runs the same extraction preview as /test-extract
+    - If 0 items are found, returns 400 with helpful diagnostics
+    - On success, merges into settings_json:
+        - extract
+        - targets.test_url
+        - extract_sample (tested_at/url/items_preview)
+        - detected_strategy (extract.strategy)
+    """
+    db_source = service.get_source(db, source_id)
+    if not db_source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    url = (request.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing url")
+
+    extract_cfg = request.extract if isinstance(request.extract, dict) else None
+    if extract_cfg is None:
+        raise HTTPException(status_code=400, detail="extract must be an object")
+
+    try:
+        preview = source_extract_service.test_extract(
+            db=db,
+            source=db_source,
+            url_override=url,
+            extract_override=extract_cfg,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Save template failed for source_id=%s: %s", source_id, str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Save template failed")
+
+    items_found = int(preview.get("items_found") or 0)
+    items_preview = preview.get("items_preview") or []
+    if not isinstance(items_preview, list):
+        items_preview = []
+    items_preview = items_preview[:5]
+
+    if items_found <= 0:
+        item_selector = None
+        try:
+            list_cfg = extract_cfg.get("list") if isinstance(extract_cfg.get("list"), dict) else {}
+            item_selector = list_cfg.get("item_selector")
+        except Exception:
+            item_selector = None
+
+        detail = {
+            "message": "No items found. Check your URL and CSS selectors (especially extract.list.item_selector).",
+            "url": url,
+            "item_selector": item_selector,
+            "fetch": preview.get("fetch"),
+            "errors": preview.get("errors") or [],
+        }
+        raise HTTPException(status_code=400, detail=detail)
+
+    strategy = extract_cfg.get("strategy") if isinstance(extract_cfg.get("strategy"), str) else None
+    tested_at = datetime.utcnow().isoformat() + "Z"
+
+    existing_settings = (db_source.settings_json or {}).copy()
+    existing_targets = existing_settings.get("targets") if isinstance(existing_settings.get("targets"), dict) else {}
+    if not strategy:
+        existing_detected = existing_settings.get("detected_strategy")
+        strategy = existing_detected if isinstance(existing_detected, str) and existing_detected.strip() else "generic_html_list"
+
+    patch_applied = {
+        "extract": extract_cfg,
+        "targets": {"test_url": url},
+        "extract_sample": {
+            "tested_at": tested_at,
+            "url": url,
+            "items_preview": items_preview,
+        },
+        "detected_strategy": strategy,
+    }
+
+    # Merge safely (avoid clobbering unrelated keys)
+    next_settings = existing_settings.copy()
+    next_settings["extract"] = extract_cfg
+    next_settings["targets"] = {**existing_targets, "test_url": url}
+    next_settings["extract_sample"] = patch_applied["extract_sample"]
+    next_settings["detected_strategy"] = strategy
+
+    db_source.settings_json = next_settings
+    db.add(db_source)
+    db.commit()
+    db.refresh(db_source)
+
+    return {
+        "saved": True,
+        "items_found": items_found,
+        "items_preview": items_preview,
+        "settings_json_patch_applied": patch_applied,
+        "fetch": preview.get("fetch"),
+        "errors": preview.get("errors") or [],
+    }
 
 
 @router.delete("/sources/{source_id}", status_code=204)

@@ -455,6 +455,13 @@ export async function testExtractDataSource(
   return apiPost(`/admin/data/sources/${sourceId}/test-extract`, payload || {});
 }
 
+export async function saveTemplateDataSource(
+  sourceId: number,
+  payload: { url: string; extract: any }
+) {
+  return apiPost(`/admin/data/sources/${sourceId}/save-template`, payload);
+}
+
 export async function listSourceRuns(sourceId: number) {
   return apiGet<any[]>(`/admin/data/sources/${sourceId}/runs`);
 }

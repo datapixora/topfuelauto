@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { Button } from "../../../../../components/ui/button";
 import { Table, TBody, TD, TH, THead, TR } from "../../../../../components/ui/table";
-import { testExtractDataSource, updateDataSource } from "../../../../../lib/api";
+import { runDataSource, saveTemplateDataSource, testExtractDataSource } from "../../../../../lib/api";
 
 type ExtractConfig = {
   strategy: string;
@@ -32,6 +32,11 @@ type TestExtractResponse = {
   items_found?: number;
   items_preview?: Array<Record<string, any>>;
   errors?: string[];
+};
+
+type SaveTemplateResponse = TestExtractResponse & {
+  saved?: boolean;
+  settings_json_patch_applied?: Record<string, any>;
 };
 
 const normalizeExtract = (raw: any): ExtractConfig => {
@@ -97,8 +102,11 @@ export default function ExtractorTemplatePanel(props: {
 
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
   const [result, setResult] = useState<TestExtractResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedOk, setSavedOk] = useState(false);
+  const [runQueued, setRunQueued] = useState<string | null>(null);
 
   useEffect(() => {
     setTestUrl(initialTestUrl);
@@ -109,6 +117,8 @@ export default function ExtractorTemplatePanel(props: {
     setPriceSelector((next.fields?.price?.selector as string) || "");
     setUrlSelector((next.fields?.url?.selector as string) || "");
     setImageSelector((next.fields?.image?.selector as string) || "");
+    setSavedOk(false);
+    setRunQueued(null);
   }, [props.initialSettingsJson, initialTestUrl]);
 
   const buildConfig = (): ExtractConfig => ({
@@ -126,9 +136,22 @@ export default function ExtractorTemplatePanel(props: {
     normalize: {},
   });
 
+  const preview = result?.items_preview || [];
+
+  const saveUrl = useMemo(() => {
+    const fromInput = testUrl.trim();
+    if (fromInput) return fromInput;
+    const fromFetch = result?.fetch?.final_url;
+    return typeof fromFetch === "string" ? fromFetch : "";
+  }, [testUrl, result?.fetch?.final_url]);
+
+  const canSave = (preview.length > 0 || !!testUrl.trim()) && !!saveUrl;
+
   const handleTest = async () => {
     setTesting(true);
     setError(null);
+    setSavedOk(false);
+    setRunQueued(null);
     try {
       const res = (await testExtractDataSource(props.sourceId, {
         url: testUrl.trim() || undefined,
@@ -143,19 +166,28 @@ export default function ExtractorTemplatePanel(props: {
   };
 
   const handleSave = async () => {
+    if (!saveUrl) {
+      setError("Missing URL. Provide a Test URL or run Test Extract first.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const existingTargets = (props.initialSettingsJson?.targets && typeof props.initialSettingsJson.targets === "object")
-        ? props.initialSettingsJson.targets
-        : {};
-      await updateDataSource(props.sourceId, {
-        settings_json: {
-          targets: { ...existingTargets, test_url: testUrl.trim() || null },
-          extract: buildConfig(),
-        },
+      const res = (await saveTemplateDataSource(props.sourceId, {
+        url: saveUrl,
+        extract: buildConfig(),
+      })) as SaveTemplateResponse;
+
+      // Ensure UI has a preview even if user saved without running Test Extract first.
+      setResult({
+        fetch: res.fetch || { final_url: saveUrl },
+        items_found: res.items_found,
+        items_preview: res.items_preview,
+        errors: res.errors,
       });
-      setResult((prev) => prev); // keep preview
+      setSavedOk(true);
+      setRunQueued(null);
+      setTestUrl(saveUrl);
       router.refresh();
     } catch (e: any) {
       setError(e.message || "Save failed");
@@ -164,19 +196,40 @@ export default function ExtractorTemplatePanel(props: {
     }
   };
 
-  const preview = result?.items_preview || [];
+  const handleRunNow = async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await runDataSource(props.sourceId);
+      const taskId = typeof res?.task_id === "string" ? res.task_id : null;
+      setRunQueued(taskId ? `Run queued (task_id=${taskId})` : "Run queued");
+      router.refresh();
+    } catch (e: any) {
+      setError(e.message || "Run failed");
+    } finally {
+      setRunning(false);
+    }
+  };
 
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
         <CardTitle>Extractor Template</CardTitle>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <Button variant="ghost" onClick={handleTest} disabled={testing}>
             {testing ? "Testing..." : "Test Extract"}
           </Button>
-          <Button variant="primary" onClick={handleSave} disabled={saving}>
+          <Button variant="primary" onClick={handleSave} disabled={saving || !canSave}>
             {saving ? "Saving..." : "Save Template"}
           </Button>
+          {savedOk && (
+            <span className="text-xs text-green-400">Saved ✓</span>
+          )}
+          {savedOk && (
+            <Button variant="ghost" onClick={handleRunNow} disabled={running}>
+              {running ? "Running..." : "Run Now"}
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
@@ -193,16 +246,26 @@ export default function ExtractorTemplatePanel(props: {
           </div>
         )}
 
+        {runQueued && (
+          <div className="rounded border border-slate-800 bg-slate-900/30 p-3 text-xs text-slate-300">
+            {runQueued}
+          </div>
+        )}
+
         <div>
           <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1">Test URL</label>
           <input
             type="text"
             value={testUrl}
-            onChange={(e) => setTestUrl(e.target.value)}
+            onChange={(e) => {
+              setTestUrl(e.target.value);
+              setSavedOk(false);
+              setRunQueued(null);
+            }}
             placeholder="https://example.com/listings"
             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
           />
-          <p className="text-xs text-slate-500 mt-1">Used for detect and for “Test Extract”.</p>
+          <p className="text-xs text-slate-500 mt-1">Used for Detect, Test Extract, and Save Template.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -211,7 +274,11 @@ export default function ExtractorTemplatePanel(props: {
             <input
               type="text"
               value={itemSelector}
-              onChange={(e) => setItemSelector(e.target.value)}
+              onChange={(e) => {
+                setItemSelector(e.target.value);
+                setSavedOk(false);
+                setRunQueued(null);
+              }}
               placeholder=".listing-card"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
             />
@@ -221,7 +288,11 @@ export default function ExtractorTemplatePanel(props: {
             <input
               type="text"
               value={nextPageSelector}
-              onChange={(e) => setNextPageSelector(e.target.value)}
+              onChange={(e) => {
+                setNextPageSelector(e.target.value);
+                setSavedOk(false);
+                setRunQueued(null);
+              }}
               placeholder="a.next"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
             />
@@ -234,7 +305,11 @@ export default function ExtractorTemplatePanel(props: {
             <input
               type="text"
               value={titleSelector}
-              onChange={(e) => setTitleSelector(e.target.value)}
+              onChange={(e) => {
+                setTitleSelector(e.target.value);
+                setSavedOk(false);
+                setRunQueued(null);
+              }}
               placeholder=".title"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
             />
@@ -244,7 +319,11 @@ export default function ExtractorTemplatePanel(props: {
             <input
               type="text"
               value={priceSelector}
-              onChange={(e) => setPriceSelector(e.target.value)}
+              onChange={(e) => {
+                setPriceSelector(e.target.value);
+                setSavedOk(false);
+                setRunQueued(null);
+              }}
               placeholder=".price"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
             />
@@ -254,7 +333,11 @@ export default function ExtractorTemplatePanel(props: {
             <input
               type="text"
               value={urlSelector}
-              onChange={(e) => setUrlSelector(e.target.value)}
+              onChange={(e) => {
+                setUrlSelector(e.target.value);
+                setSavedOk(false);
+                setRunQueued(null);
+              }}
               placeholder="a"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
             />
@@ -265,7 +348,11 @@ export default function ExtractorTemplatePanel(props: {
             <input
               type="text"
               value={imageSelector}
-              onChange={(e) => setImageSelector(e.target.value)}
+              onChange={(e) => {
+                setImageSelector(e.target.value);
+                setSavedOk(false);
+                setRunQueued(null);
+              }}
               placeholder="img"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
             />
