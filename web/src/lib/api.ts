@@ -490,6 +490,18 @@ export async function listProxies() {
   return apiGet<any[]>("/admin/proxies/");
 }
 
+export async function getProxyOptions() {
+  return apiGet<Array<{
+    id: number;
+    name: string;
+    host: string;
+    port: number;
+    scheme: string;
+    last_check_status: string | null;
+    last_exit_ip: string | null;
+  }>>("/admin/proxies/options");
+}
+
 export async function createProxy(payload: any) {
   return apiPost("/admin/proxies/", payload);
 }

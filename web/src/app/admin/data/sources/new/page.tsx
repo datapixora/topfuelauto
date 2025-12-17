@@ -1,17 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../components/ui/card";
 import { Button } from "../../../../../components/ui/button";
-import { createDataSource, testProxyConnection } from "../../../../../lib/api";
+import { createDataSource, getProxyOptions } from "../../../../../lib/api";
+
+type ProxyOption = {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  scheme: string;
+  last_check_status: string | null;
+  last_exit_ip: string | null;
+};
 
 export default function NewSourcePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [testingProxy, setTestingProxy] = useState(false);
-  const [proxyTestResult, setProxyTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [proxyOptions, setProxyOptions] = useState<ProxyOption[]>([]);
+  const [loadingProxies, setLoadingProxies] = useState(true);
 
   const [formData, setFormData] = useState({
     key: "",
@@ -30,14 +40,25 @@ export default function NewSourcePage() {
     require_year_make_model: true,
     require_price_or_url: true,
     min_confidence_score: "" as number | "" | null,
-    // Proxy settings
-    proxy_enabled: false,
-    proxy_host: "",
-    proxy_port: "",
-    proxy_username: "",
-    proxy_password: "",
-    proxy_type: "http" as "http" | "socks5",
+    // Proxy settings - use Proxy Pool
+    proxy_mode: "NONE" as "NONE" | "POOL",
+    proxy_id: null as number | null,
   });
+
+  // Fetch proxy options on mount
+  useEffect(() => {
+    async function fetchProxies() {
+      try {
+        const proxies = await getProxyOptions();
+        setProxyOptions(proxies);
+      } catch (e) {
+        console.error("Failed to fetch proxy options:", e);
+      } finally {
+        setLoadingProxies(false);
+      }
+    }
+    fetchProxies();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,22 +66,6 @@ export default function NewSourcePage() {
     setError(null);
 
     try {
-      // Build settings_json with proxy config and auto-merge
-      const settings_json: any = {};
-
-      // Proxy config
-      if (formData.proxy_enabled && formData.proxy_host && formData.proxy_port) {
-        settings_json.proxy_enabled = true;
-        settings_json.proxy_url = `${formData.proxy_type}://${formData.proxy_host}:${formData.proxy_port}`;
-        settings_json.proxy_type = formData.proxy_type;
-        if (formData.proxy_username) {
-          settings_json.proxy_username = formData.proxy_username;
-        }
-        if (formData.proxy_password) {
-          settings_json.proxy_password = formData.proxy_password;
-        }
-      }
-
       const merge_rules = {
         auto_merge_enabled: formData.auto_merge_enabled,
         require_year_make_model: formData.require_year_make_model,
@@ -84,7 +89,8 @@ export default function NewSourcePage() {
         timeout_seconds: formData.timeout_seconds,
         retry_count: formData.retry_count,
         is_enabled: formData.is_enabled,
-        settings_json: Object.keys(settings_json).length > 0 ? settings_json : null,
+        proxy_mode: formData.proxy_mode,
+        proxy_id: formData.proxy_mode === "POOL" ? formData.proxy_id : null,
         merge_rules,
       };
 
@@ -97,33 +103,6 @@ export default function NewSourcePage() {
     }
   };
 
-  const handleTestProxy = async () => {
-    if (!formData.proxy_host || !formData.proxy_port) {
-      setProxyTestResult({ success: false, message: "Proxy host and port are required" });
-      return;
-    }
-
-    setTestingProxy(true);
-    setProxyTestResult(null);
-
-    try {
-      const proxyUrl = `${formData.proxy_type}://${formData.proxy_host}:${formData.proxy_port}`;
-      const data = await testProxyConnection({
-        proxy_url: proxyUrl,
-        proxy_username: formData.proxy_username || null,
-        proxy_password: formData.proxy_password || null,
-      });
-
-      setProxyTestResult({
-        success: data.success,
-        message: data.message + (data.latency_ms ? ` (${data.latency_ms}ms)` : ""),
-      });
-    } catch (e: any) {
-      setProxyTestResult({ success: false, message: e.message });
-    } finally {
-      setTestingProxy(false);
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -389,106 +368,69 @@ export default function NewSourcePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Proxy Settings (Optional)</CardTitle>
+            <CardTitle>Proxy Settings</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="proxy_enabled"
-                checked={formData.proxy_enabled}
-                onChange={(e) => setFormData({ ...formData, proxy_enabled: e.target.checked })}
-                className="w-4 h-4"
-              />
-              <label htmlFor="proxy_enabled" className="text-sm font-medium">Enable Proxy</label>
+            <div>
+              <label className="block text-sm font-medium mb-1">Proxy Mode</label>
+              <select
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+                value={formData.proxy_mode}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    proxy_mode: e.target.value as "NONE" | "POOL",
+                    proxy_id: e.target.value === "NONE" ? null : formData.proxy_id,
+                  })
+                }
+              >
+                <option value="NONE">No Proxy</option>
+                <option value="POOL">Use Proxy from Pool</option>
+              </select>
             </div>
 
-            {formData.proxy_enabled && (
-              <>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Type</label>
+            {formData.proxy_mode === "POOL" && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Select Proxy</label>
+                {loadingProxies ? (
+                  <div className="text-sm text-slate-400">Loading proxies...</div>
+                ) : proxyOptions.length === 0 ? (
+                  <div className="bg-yellow-900/20 border border-yellow-800 rounded p-3 text-yellow-400 text-sm">
+                    No proxies configured.{" "}
+                    <a href="/admin/proxies" className="underline">
+                      Go to Admin → Proxies
+                    </a>{" "}
+                    to add proxies first.
+                  </div>
+                ) : (
+                  <>
                     <select
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
-                      value={formData.proxy_type}
-                      onChange={(e) => setFormData({ ...formData, proxy_type: e.target.value as "http" | "socks5" })}
+                      value={formData.proxy_id ?? ""}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          proxy_id: e.target.value ? parseInt(e.target.value) : null,
+                        })
+                      }
                     >
-                      <option value="http">HTTP</option>
-                      <option value="socks5">SOCKS5</option>
+                      <option value="">-- Select a proxy --</option>
+                      {proxyOptions.map((proxy) => (
+                        <option key={proxy.id} value={proxy.id}>
+                          {proxy.name} ({proxy.scheme}://{proxy.host}:{proxy.port})
+                          {proxy.last_check_status === "success" && " ✓"}
+                          {proxy.last_check_status === "failed" && " ✗"}
+                        </option>
+                      ))}
                     </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Proxy Server</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm font-mono"
-                      placeholder="proxy.smartproxy.net"
-                      value={formData.proxy_host}
-                      onChange={(e) => setFormData({ ...formData, proxy_host: e.target.value })}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Port</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm font-mono"
-                      placeholder="3120"
-                      value={formData.proxy_port}
-                      onChange={(e) => setFormData({ ...formData, proxy_port: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Username (optional)</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
-                      placeholder="proxy_user"
-                      value={formData.proxy_username}
-                      onChange={(e) => setFormData({ ...formData, proxy_username: e.target.value })}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Password (optional)</label>
-                    <input
-                      type="password"
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
-                      placeholder="••••••••"
-                      value={formData.proxy_password}
-                      onChange={(e) => setFormData({ ...formData, proxy_password: e.target.value })}
-                    />
-                    <p className="text-xs text-slate-500 mt-1">Encrypted before storage</p>
-                  </div>
-                </div>
-
-                <div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={handleTestProxy}
-                    disabled={testingProxy || !formData.proxy_host || !formData.proxy_port}
-                  >
-                    {testingProxy ? "Testing..." : "Test Proxy Connection"}
-                  </Button>
-
-                  {proxyTestResult && (
-                    <div
-                      className={`mt-2 p-2 rounded text-sm ${
-                        proxyTestResult.success
-                          ? "bg-green-900/20 border border-green-800 text-green-400"
-                          : "bg-red-900/20 border border-red-800 text-red-400"
-                      }`}
-                    >
-                      {proxyTestResult.message}
-                    </div>
-                  )}
-                </div>
-              </>
+                    {formData.proxy_id && (
+                      <p className="text-xs text-slate-400 mt-1">
+                        Proxy credentials are managed in the Proxy Pool. Sources do not store credentials.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

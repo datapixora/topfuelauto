@@ -106,6 +106,7 @@
 95. [x] Fix admin overflow for long URLs/JSON (base URL break, copy + toggle, settings JSON container).
 96. [x] BUGFIX (PROD): Fix ProxyMode enum SQLAlchemy decode error - updated enum to use uppercase values (NONE/POOL/MANUAL), modified migration 0020 to create uppercase enum, added migration 0021 to convert existing lowercase values, added Pydantic validators to normalize inputs, and comprehensive regression tests.
 97. [x] HOTFIX (PROD): Fix migration 0021 Postgres enum safety - use autocommit_block for ADD VALUE operations to avoid "unsafe use of new value" error. Migration now commits enum values before using them in UPDATE statements, fixing API and worker crashes.
+98. [x] ARCHITECTURE FIX: Wire Data Engine Sources to Proxy Pool - removed duplicate proxy config system (manual host/port/user/pass fields) from Data Engine Source form. Sources now use proxy_mode (NONE/POOL) and proxy_id to reference centralized Proxy Pool. Added GET /api/v1/admin/proxies/options endpoint call, proxy dropdown UI with health status indicators, and warning when no proxies configured. Proxy credentials now stored only in Proxy Pool (single source of truth).
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
