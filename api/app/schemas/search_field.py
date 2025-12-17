@@ -1,5 +1,6 @@
 """Schemas for SearchField CRUD."""
 
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, validator
 import re
@@ -64,9 +65,8 @@ class SearchFieldUpdate(BaseModel):
 class SearchFieldResponse(SearchFieldBase):
     """Schema for SearchField response."""
     id: int
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
-        orm_mode = True
