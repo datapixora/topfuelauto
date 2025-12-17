@@ -544,3 +544,38 @@ export async function checkProxy(id: number) {
 export async function checkAllProxies() {
   return apiPost("/admin/proxies/check-bulk", {});
 }
+
+// ============================================================================
+// Admin Imports
+// ============================================================================
+
+export async function uploadCSV(file: File, sourceKey?: string) {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (sourceKey) {
+    formData.append("source_key", sourceKey);
+  }
+
+  const res = await authFetch("/admin/imports/upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+  return res.json();
+}
+
+export async function listImports(limit: number = 50) {
+  return apiGet<any[]>(`/admin/imports?limit=${limit}`);
+}
+
+export async function getImportStatus(importId: number) {
+  return apiGet<any>(`/admin/imports/${importId}`);
+}
+
+export async function startImport(importId: number, payload: {
+  column_map: Record<string, string>;
+  source_key?: string;
+}) {
+  return apiPost(`/admin/imports/${importId}/start`, payload);
+}

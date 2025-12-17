@@ -318,3 +318,43 @@ export type StagedListing = {
   updated_at: string;
   attributes: StagedListingAttribute[];
 };
+
+// ============================================================================
+// CSV Import Types
+// ============================================================================
+
+export type AdminImport = {
+  id: number;
+  filename: string;
+  file_size: number;
+  sha256: string;
+  status: "UPLOADED" | "PARSING" | "READY" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+  total_rows?: number | null;
+  processed_rows: number;
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  error_count: number;
+  error_log?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export type ImportUploadResponse = {
+  import_id: number;
+  filename: string;
+  file_size: number;
+  sha256: string;
+  total_rows: number;
+  detected_headers: string[];
+  sample_preview: Record<string, any>[];
+  suggested_mapping: Record<string, string>;
+  status: string;
+};
+
+export type ImportStartRequest = {
+  column_map: Record<string, string>;
+  source_key?: string | null;
+  skip_duplicates?: boolean;
+};
