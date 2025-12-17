@@ -422,9 +422,9 @@ export default function SourceDetailPage() {
         </CardContent>
       </Card>
 
-      <AutoDetectPanel sourceId={sourceId} initialSettingsJson={source.settings_json} />
+      <AutoDetectPanel sourceId={sourceId} initialSettingsJson={source.settings_json} onSourceUpdated={loadData} />
 
-      <ExtractorTemplatePanel sourceId={sourceId} initialSettingsJson={source.settings_json} />
+      <ExtractorTemplatePanel sourceId={sourceId} initialSettingsJson={source.settings_json} onSourceUpdated={loadData} />
 
       {source.settings_json && Object.keys(source.settings_json).length > 0 && (
         <Card>

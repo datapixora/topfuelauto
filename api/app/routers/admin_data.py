@@ -143,6 +143,7 @@ def detect_source(
             db=db,
             source=db_source,
             url_override=request.url or default_url,
+            requested_url=request.url,
             use_proxy=use_proxy,
             use_playwright=use_playwright,
             timeout_s=timeout_s,
@@ -158,6 +159,12 @@ def detect_source(
     settings = (db_source.settings_json or {}).copy()
     settings["detect_report"] = report
     settings["detected_strategy"] = report.get("detected_strategy")
+
+    # Persist the chosen URL for downstream actions (Test Extract, Save Template, etc.)
+    used_url = report.get("used_url") if isinstance(report.get("used_url"), str) else None
+    if used_url:
+        targets = settings.get("targets") if isinstance(settings.get("targets"), dict) else {}
+        settings["targets"] = {**targets, "test_url": used_url}
     db_source.settings_json = settings
     db.add(db_source)
     db.commit()
@@ -206,8 +213,8 @@ def test_extract(
 
 
 class SourceSaveTemplateRequest(BaseModel):
-    url: str
-    extract: dict
+    url: Optional[str] = None
+    extract: Optional[dict] = None
 
 
 @router.post("/sources/{source_id}/save-template")
@@ -232,20 +239,16 @@ def save_template(
     if not db_source:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    url = (request.url or "").strip()
-    if not url:
-        raise HTTPException(status_code=400, detail="Missing url")
-
-    extract_cfg = request.extract if isinstance(request.extract, dict) else None
-    if extract_cfg is None:
-        raise HTTPException(status_code=400, detail="extract must be an object")
+    url_override = (request.url or "").strip() or None
+    if request.url is not None and not url_override:
+        raise HTTPException(status_code=400, detail="url must be a non-empty string when provided")
 
     try:
         preview = source_extract_service.test_extract(
             db=db,
             source=db_source,
-            url_override=url,
-            extract_override=extract_cfg,
+            url_override=url_override,
+            extract_override=request.extract if request.extract is not None else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -262,46 +265,50 @@ def save_template(
     if items_found <= 0:
         item_selector = None
         try:
-            list_cfg = extract_cfg.get("list") if isinstance(extract_cfg.get("list"), dict) else {}
+            extract_used = request.extract if isinstance(request.extract, dict) else (db_source.settings_json or {}).get("extract") or {}
+            list_cfg = extract_used.get("list") if isinstance(extract_used.get("list"), dict) else {}
             item_selector = list_cfg.get("item_selector")
         except Exception:
             item_selector = None
 
         detail = {
             "message": "No items found. Check your URL and CSS selectors (especially extract.list.item_selector).",
-            "url": url,
+            "url": preview.get("used_url") or preview.get("url") or url_override,
             "item_selector": item_selector,
             "fetch": preview.get("fetch"),
             "errors": preview.get("errors") or [],
         }
         raise HTTPException(status_code=400, detail=detail)
 
-    strategy = extract_cfg.get("strategy") if isinstance(extract_cfg.get("strategy"), str) else None
+    settings_json = db_source.settings_json or {}
+    extract_used = request.extract if isinstance(request.extract, dict) else settings_json.get("extract")
+    if not isinstance(extract_used, dict):
+        raise HTTPException(status_code=400, detail="Missing extract config (provide body.extract or set source.settings_json.extract)")
+
+    used_url = preview.get("used_url") if isinstance(preview.get("used_url"), str) else (preview.get("url") if isinstance(preview.get("url"), str) else (url_override or "").strip())
+    if not used_url:
+        raise HTTPException(status_code=400, detail="Missing URL (provide body.url or set source.settings_json.targets.test_url)")
+
     tested_at = datetime.utcnow().isoformat() + "Z"
 
     existing_settings = (db_source.settings_json or {}).copy()
     existing_targets = existing_settings.get("targets") if isinstance(existing_settings.get("targets"), dict) else {}
-    if not strategy:
-        existing_detected = existing_settings.get("detected_strategy")
-        strategy = existing_detected if isinstance(existing_detected, str) and existing_detected.strip() else "generic_html_list"
 
     patch_applied = {
-        "extract": extract_cfg,
-        "targets": {"test_url": url},
+        "extract": extract_used,
+        "targets": {"test_url": used_url},
         "extract_sample": {
             "tested_at": tested_at,
-            "url": url,
+            "url": used_url,
             "items_preview": items_preview,
         },
-        "detected_strategy": strategy,
     }
 
     # Merge safely (avoid clobbering unrelated keys)
     next_settings = existing_settings.copy()
-    next_settings["extract"] = extract_cfg
-    next_settings["targets"] = {**existing_targets, "test_url": url}
+    next_settings["extract"] = extract_used
+    next_settings["targets"] = {**existing_targets, "test_url": used_url}
     next_settings["extract_sample"] = patch_applied["extract_sample"]
-    next_settings["detected_strategy"] = strategy
 
     db_source.settings_json = next_settings
     db.add(db_source)
@@ -313,6 +320,8 @@ def save_template(
         "items_found": items_found,
         "items_preview": items_preview,
         "settings_json_patch_applied": patch_applied,
+        "requested_url": preview.get("requested_url"),
+        "used_url": used_url,
         "fetch": preview.get("fetch"),
         "errors": preview.get("errors") or [],
     }

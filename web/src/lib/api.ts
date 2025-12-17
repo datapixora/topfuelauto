@@ -457,9 +457,9 @@ export async function testExtractDataSource(
 
 export async function saveTemplateDataSource(
   sourceId: number,
-  payload: { url: string; extract: any }
+  payload?: { url?: string; extract?: any }
 ) {
-  return apiPost(`/admin/data/sources/${sourceId}/save-template`, payload);
+  return apiPost(`/admin/data/sources/${sourceId}/save-template`, payload || {});
 }
 
 export async function listSourceRuns(sourceId: number) {

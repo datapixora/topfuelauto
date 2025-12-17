@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
+from urllib.parse import urljoin
 from urllib.parse import urlparse
 import logging
+import json
+import re
 
 import httpx
 from bs4 import BeautifulSoup
@@ -70,30 +73,96 @@ def _detect_block(status_code: Optional[int], final_url: str, html: str) -> Tupl
 
 def _compute_fingerprints(html: str) -> dict:
     lower = (html or "").lower()
-    jsonld = False
+
+    soup: Optional[BeautifulSoup] = None
     try:
         soup = BeautifulSoup(html or "", "lxml")
-        jsonld = any((tag.get("type") or "").lower() == "application/ld+json" for tag in soup.find_all("script"))
     except Exception:
-        # Fallback to substring check if parser errors for any reason.
-        jsonld = "application/ld+json" in lower
+        soup = None
+
+    jsonld_present = False
+    jsonld_product = False
+    jsonld_itemlist = False
+
+    if soup is not None:
+        jsonld_scripts = [
+            tag
+            for tag in soup.find_all("script")
+            if (tag.get("type") or "").lower() == "application/ld+json"
+        ]
+        jsonld_present = len(jsonld_scripts) > 0
+
+        def iter_json_nodes(value: Any):
+            if isinstance(value, dict):
+                yield value
+                for v in value.values():
+                    yield from iter_json_nodes(v)
+            elif isinstance(value, list):
+                for item in value:
+                    yield from iter_json_nodes(item)
+
+        def types_for_node(node: dict) -> list[str]:
+            raw = node.get("@type") or node.get("type")
+            if isinstance(raw, str):
+                return [raw]
+            if isinstance(raw, list):
+                return [str(x) for x in raw if isinstance(x, (str, int, float))]
+            return []
+
+        for script in jsonld_scripts[:20]:
+            txt = (script.string or script.get_text() or "").strip()
+            if not txt:
+                continue
+            try:
+                data = json.loads(txt)
+            except Exception:
+                continue
+
+            for node in iter_json_nodes(data):
+                if not isinstance(node, dict):
+                    continue
+                types = [t.lower() for t in types_for_node(node)]
+                if "itemlist" in types:
+                    jsonld_itemlist = True
+                if "product" in types:
+                    jsonld_product = True
+
+    if not jsonld_present:
+        jsonld_present = "application/ld+json" in lower
+
     return {
-        "next_data": "__next_data__" in lower,
-        "jsonld": jsonld,
-        "wp": "wp-content" in lower,
-        "woocommerce": "woocommerce" in lower,
-        "shopify": ("cdn.shopify.com" in lower) or ("Shopify" in (html or "")),
+        "nextjs": ("__next_data__" in lower) or (soup is not None and soup.select_one("script#__NEXT_DATA__") is not None),
+        "jsonld": jsonld_present,
+        "jsonld_product": jsonld_product,
+        "jsonld_itemlist": jsonld_itemlist,
+        "wp": ("wp-content" in lower) or ("wp-json" in lower),
+        "woocommerce": ("woocommerce" in lower) or ("wc-" in lower),
+        "shopify": ("cdn.shopify.com" in lower) or ("window.shopify" in lower) or ("x-shopify" in lower),
     }
 
 
 def _build_candidates(fingerprints: dict) -> list[dict]:
     candidates: list[dict] = []
 
-    if fingerprints.get("next_data"):
+    if fingerprints.get("jsonld_itemlist"):
         candidates.append({
-            "strategy_key": "nextjs_json",
+            "strategy_key": "jsonld_itemlist",
             "confidence": 0.92,
-            "reason": "Found __NEXT_DATA__ script marker (Next.js).",
+            "reason": "Found JSON-LD ItemList in application/ld+json.",
+        })
+
+    if fingerprints.get("jsonld_product"):
+        candidates.append({
+            "strategy_key": "jsonld_product",
+            "confidence": 0.88,
+            "reason": "Found JSON-LD Product in application/ld+json.",
+        })
+
+    if fingerprints.get("nextjs"):
+        candidates.append({
+            "strategy_key": "nextjs",
+            "confidence": 0.9,
+            "reason": "Found __NEXT_DATA__ marker (Next.js).",
         })
 
     if fingerprints.get("woocommerce"):
@@ -109,14 +178,7 @@ def _build_candidates(fingerprints: dict) -> list[dict]:
         candidates.append({
             "strategy_key": "shopify",
             "confidence": 0.9,
-            "reason": "Found Shopify markers (cdn.shopify.com or Shopify).",
-        })
-
-    if fingerprints.get("jsonld"):
-        candidates.append({
-            "strategy_key": "jsonld_product_list",
-            "confidence": 0.6,
-            "reason": "Found application/ld+json scripts (JSON-LD).",
+            "reason": "Found Shopify markers (window.Shopify/cdn.shopify.com/x-shopify).",
         })
 
     # Always include a fallback candidate so the UI has a safe default.
@@ -134,10 +196,11 @@ def _pick_best_candidate(candidates: list[dict]) -> Optional[dict]:
         return None
 
     priority = {
-        "nextjs_json": 5,
-        "shopify": 4,
-        "woocommerce": 3,
-        "jsonld_product_list": 2,
+        "jsonld_itemlist": 6,
+        "jsonld_product": 5,
+        "nextjs": 4,
+        "shopify": 3,
+        "woocommerce": 2,
         "generic_html_list": 1,
     }
 
@@ -374,10 +437,355 @@ def _resolve_proxy_url(db: Session, source: AdminSource) -> Optional[str]:
     return None
 
 
+def _looks_like_product_href(href: str) -> bool:
+    h = (href or "").lower()
+    if not h:
+        return False
+    # Common product/detail URL patterns across many ecommerce sites.
+    return any(
+        needle in h
+        for needle in (
+            "/product",
+            "/products/",
+            "product=",
+            "/p-",
+            "/item",
+            "/items/",
+            "sku=",
+        )
+    )
+
+
+_PRICE_RE = re.compile(r"(?<!\\d)(\\d{1,3}(?:[\\.,]\\d{3})+|\\d+)(?!\\d)")
+_CURRENCY_TOKENS = ("$", "€", "£", "usd", "eur", "gbp", "toman", "rial", "تومان", "ریال", "تومن")
+
+
+def _looks_like_price(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    lower = t.lower()
+    m = _PRICE_RE.search(lower)
+    if not m:
+        return False
+    if any(tok in lower for tok in _CURRENCY_TOKENS):
+        return True
+
+    digits = re.sub(r"\\D", "", m.group(0))
+    if len(digits) >= 4:
+        return True
+    # If no explicit currency token, still accept if it "looks" like a price (has separators)
+    return "," in lower or "٫" in lower or "٬" in lower
+
+
+def _safe_class_fragment(value: str) -> Optional[str]:
+    v = (value or "").strip()
+    if not v:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_-]{2,80}", v):
+        return None
+    # Avoid extremely generic grid/layout classes that tend to over-match.
+    if v.lower() in {"row", "col", "container", "wrapper", "grid", "item"}:
+        return None
+    return v
+
+
+def _candidate_selectors_from_product_links(soup: BeautifulSoup) -> list[str]:
+    counts: dict[str, int] = {}
+    for a in soup.find_all("a", href=True)[:2000]:
+        href = a.get("href") or ""
+        if not _looks_like_product_href(href):
+            continue
+        # Walk up a few ancestors to find a reasonable "card" container.
+        parent = a
+        for _ in range(5):
+            parent = parent.parent
+            if parent is None or not hasattr(parent, "name"):
+                break
+            if parent.name not in ("li", "article", "div", "section"):
+                continue
+            classes = parent.get("class") or []
+            if not isinstance(classes, (list, tuple)):
+                continue
+            cls = next((c for c in classes if _safe_class_fragment(str(c))), None)
+            if not cls:
+                continue
+            sel = f"{parent.name}.{cls}"
+            counts[sel] = counts.get(sel, 0) + 1
+            break
+
+    # Top repeated selectors first.
+    return [k for k, _ in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:8]]
+
+
+def _score_item_nodes(nodes: list[Any]) -> float:
+    count = len(nodes)
+    if count < 2:
+        return 0.0
+
+    sample = nodes[: min(count, 25)]
+    n = len(sample)
+    if n == 0:
+        return 0.0
+
+    link_hits = 0
+    product_link_hits = 0
+    price_hits = 0
+    img_hits = 0
+    title_hits = 0
+    text_lens: list[int] = []
+
+    for node in sample:
+        try:
+            txt = node.get_text(" ", strip=True) if hasattr(node, "get_text") else ""
+        except Exception:
+            txt = ""
+        text_lens.append(len(txt or ""))
+
+        a = None
+        try:
+            a = node.find("a", href=True) if hasattr(node, "find") else None
+        except Exception:
+            a = None
+
+        if a is not None and a.get("href"):
+            link_hits += 1
+            if _looks_like_product_href(str(a.get("href") or "")):
+                product_link_hits += 1
+
+        try:
+            if _looks_like_price(txt):
+                price_hits += 1
+        except Exception:
+            pass
+
+        try:
+            if node.find("img") is not None:
+                img_hits += 1
+        except Exception:
+            pass
+
+        try:
+            if node.find(["h1", "h2", "h3", "h4"]) is not None:
+                title_hits += 1
+            elif node.select_one(".name, .title, .product-title, .product__title") is not None:
+                title_hits += 1
+        except Exception:
+            pass
+
+    link_ratio = link_hits / n
+    product_link_ratio = product_link_hits / n
+    price_ratio = price_hits / n
+    img_ratio = img_hits / n
+    title_ratio = title_hits / n
+
+    # Prefer selectors that return a reasonable count of repeated "cards".
+    count_score = min(count, 60) / 60.0
+
+    avg_text_len = (sum(text_lens) / n) if n else 0.0
+    # Penalize giant containers; those are usually wrappers, not items.
+    big_penalty = 0.25 if avg_text_len > 600 else (0.1 if avg_text_len > 350 else 0.0)
+
+    score = (
+        (0.50 * count_score)
+        + (0.20 * product_link_ratio)
+        + (0.10 * link_ratio)
+        + (0.12 * price_ratio)
+        + (0.06 * img_ratio)
+        + (0.02 * title_ratio)
+        - big_penalty
+    )
+    return max(0.0, min(1.0, score))
+
+
+def _pick_best_item_selector(soup: BeautifulSoup, candidates: list[str]) -> Optional[str]:
+    best_sel: Optional[str] = None
+    best_score = 0.0
+    for sel in candidates:
+        try:
+            nodes = soup.select(sel)
+        except Exception:
+            continue
+        if not nodes:
+            continue
+        score = _score_item_nodes(nodes)
+        if score > best_score:
+            best_score = score
+            best_sel = sel
+    if best_sel and best_score >= 0.15:
+        return best_sel
+    return best_sel
+
+
+def _pick_best_field_selector(
+    item_nodes: list[Any],
+    selector_candidates: list[str],
+    *,
+    attr: str,
+    value_filter: Optional[Callable[[str], bool]] = None,
+) -> Optional[str]:
+    best_sel: Optional[str] = None
+    best_hits = 0
+
+    sample = item_nodes[: min(len(item_nodes), 25)]
+    if not sample:
+        return None
+
+    for sel in selector_candidates:
+        hits = 0
+        for node in sample:
+            try:
+                target = node.select_one(sel)
+            except Exception:
+                target = None
+            if target is None:
+                continue
+
+            try:
+                if attr == "text":
+                    value = target.get_text(" ", strip=True)
+                else:
+                    value = target.get(attr)
+                    if isinstance(value, (list, tuple)):
+                        value = " ".join([str(x) for x in value if x is not None]).strip()
+                    value = str(value).strip() if value is not None else ""
+            except Exception:
+                value = ""
+
+            if not value:
+                continue
+            if value_filter and not value_filter(value):
+                continue
+            hits += 1
+
+        if hits > best_hits:
+            best_hits = hits
+            best_sel = sel
+
+    return best_sel
+
+
+def _suggest_generic_html_list_extract(
+    soup: BeautifulSoup,
+    *,
+    used_url: str,
+    item_selector_candidates: Optional[list[str]] = None,
+    title_selector_candidates: Optional[list[str]] = None,
+    price_selector_candidates: Optional[list[str]] = None,
+    url_selector_candidates: Optional[list[str]] = None,
+    image_selector_candidates: Optional[list[str]] = None,
+    next_page_selector_candidates: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    item_candidates = item_selector_candidates or [
+        "article.product",
+        "li.product",
+        ".products .product",
+        ".product-item",
+        ".product-card",
+        ".product",
+        "[data-id][data-price]",
+    ]
+
+    # Add derived candidates from repeated product-ish links.
+    item_candidates = [*item_candidates, *_candidate_selectors_from_product_links(soup)]
+
+    item_selector = _pick_best_item_selector(soup, item_candidates) or ""
+    item_nodes: list[Any] = []
+    if item_selector:
+        try:
+            item_nodes = soup.select(item_selector)
+        except Exception:
+            item_nodes = []
+
+    title_candidates = title_selector_candidates or [
+        ".woocommerce-loop-product__title",
+        ".product__title",
+        ".product-title",
+        ".title",
+        ".name",
+        "h2",
+        "h3",
+        "h4",
+        "a",
+    ]
+    price_candidates = price_selector_candidates or [
+        ".woocommerce-Price-amount",
+        ".price",
+        ".amount",
+        ".money",
+        "[data-price]",
+    ]
+    url_candidates = url_selector_candidates or [
+        "a.woocommerce-LoopProduct-link",
+        "a[href*='/products/']",
+        "a[href*='product']",
+        "a[href]",
+    ]
+    image_candidates = image_selector_candidates or [
+        "img.attachment-woocommerce_thumbnail",
+        "img",
+    ]
+    next_page_candidates = next_page_selector_candidates or [
+        "a[rel='next']",
+        "a.next",
+        ".pagination a.next",
+        ".woocommerce-pagination a.next",
+        ".next.page-numbers",
+    ]
+
+    title_selector = _pick_best_field_selector(item_nodes, title_candidates, attr="text") or ""
+    price_selector = _pick_best_field_selector(item_nodes, price_candidates, attr="text", value_filter=_looks_like_price) or ""
+    url_selector = _pick_best_field_selector(item_nodes, url_candidates, attr="href", value_filter=_looks_like_product_href) or ""
+    if not url_selector:
+        # Fall back to any href within the item.
+        url_selector = _pick_best_field_selector(item_nodes, ["a[href]"], attr="href") or ""
+    image_selector = _pick_best_field_selector(item_nodes, image_candidates, attr="src") or ""
+
+    next_page_selector: Optional[str] = None
+    for sel in next_page_candidates:
+        try:
+            a = soup.select_one(sel)
+        except Exception:
+            a = None
+        if a is not None and a.get("href"):
+            next_page_selector = sel
+            break
+
+    return {
+        "strategy": "generic_html_list",
+        "list": {
+            "item_selector": item_selector,
+            **({"next_page_selector": next_page_selector} if next_page_selector else {}),
+        },
+        "fields": {
+            "title": {"selector": title_selector, "attr": "text"},
+            "price": {"selector": price_selector, "attr": "text"},
+            "url": {"selector": url_selector, "attr": "href"},
+            "image": {"selector": image_selector, "attr": "src"},
+        },
+        "normalize": {},
+    }
+
+
+def _suggest_jsonld_extract(mode: str) -> dict[str, Any]:
+    return {
+        "strategy": "jsonld",
+        "jsonld": {"mode": mode},
+        "fields": {
+            "title": {"path": "name"},
+            "price": {"path": "offers.price"},
+            "url": {"path": "url"},
+            "image": {"path": "image"},
+        },
+        "normalize": {},
+    }
+
+
 def detect_source(
     db: Session,
     source: AdminSource,
     url_override: Optional[str] = None,
+    requested_url: Optional[str] = None,
     *,
     use_proxy: bool = False,
     use_playwright: bool = False,
@@ -444,26 +852,118 @@ def detect_source(
     best_candidate = _pick_best_candidate(candidates)
     detected_strategy = best_candidate["strategy_key"] if best_candidate else "generic_html_list"
 
-    final_url = best_attempt.final_url or target_url
+    used_url = best_attempt.final_url or target_url
+    soup = BeautifulSoup(best_html or "", "lxml")
+
+    suggested_extract: dict[str, Any]
+    if detected_strategy == "jsonld_itemlist":
+        suggested_extract = _suggest_jsonld_extract("ItemList")
+    elif detected_strategy == "jsonld_product":
+        suggested_extract = _suggest_jsonld_extract("Product")
+    elif detected_strategy == "woocommerce":
+        suggested_extract = _suggest_generic_html_list_extract(
+            soup,
+            used_url=used_url,
+            item_selector_candidates=[
+                "ul.products li.product",
+                "li.product",
+                ".products .product",
+                ".product",
+            ],
+            title_selector_candidates=[
+                "h2.woocommerce-loop-product__title",
+                ".woocommerce-loop-product__title",
+                ".product__title",
+                ".product-title",
+                "h3",
+                "h2",
+                "a",
+            ],
+            price_selector_candidates=[
+                ".price .woocommerce-Price-amount",
+                ".woocommerce-Price-amount",
+                ".price",
+                ".amount",
+            ],
+            url_selector_candidates=[
+                "a.woocommerce-LoopProduct-link",
+                "a.woocommerce-loop-product__link",
+                "a[href*='product']",
+                "a[href]",
+            ],
+            image_selector_candidates=[
+                "img.attachment-woocommerce_thumbnail",
+                "img.wp-post-image",
+                "img",
+            ],
+            next_page_selector_candidates=[
+                ".woocommerce-pagination a.next",
+                ".next.page-numbers",
+                "a[rel='next']",
+                "a.next",
+            ],
+        )
+    elif detected_strategy == "shopify":
+        suggested_extract = _suggest_generic_html_list_extract(
+            soup,
+            used_url=used_url,
+            item_selector_candidates=[
+                ".product-card",
+                ".grid-product",
+                ".productgrid--item",
+                ".product-item",
+                ".product",
+            ],
+            title_selector_candidates=[
+                ".product-card__title",
+                ".grid-product__title",
+                ".product-title",
+                ".product__title",
+                ".title",
+                "h3",
+                "h2",
+                "a",
+            ],
+            price_selector_candidates=[
+                ".price",
+                ".price-item",
+                ".money",
+                ".amount",
+            ],
+            url_selector_candidates=[
+                "a[href*='/products/']",
+                "a[href*='product']",
+                "a[href]",
+            ],
+            image_selector_candidates=["img", "img[src]"],
+            next_page_selector_candidates=[
+                "a[rel='next']",
+                ".pagination a.next",
+                "a.next",
+            ],
+        )
+
+        # If this looks like a Shopify collection URL, suggest the products.json endpoint.
+        try:
+            parsed = urlparse(used_url)
+            if "/collections/" in (parsed.path or ""):
+                suggested_extract["shopify"] = {
+                    "products_json_url": urljoin(f"{parsed.scheme}://{parsed.netloc}", f"{parsed.path.rstrip('/')}/products.json")
+                }
+        except Exception:
+            pass
+    else:
+        suggested_extract = _suggest_generic_html_list_extract(soup, used_url=used_url)
+
     suggested_settings_patch: dict[str, Any] = {
-        "targets": {"test_url": final_url},
+        "targets": {"test_url": used_url},
         "fetch": {
             "use_proxy": bool(use_proxy),
             "use_playwright": bool(use_playwright),
             "timeout_s": float(timeout_s),
         },
         "detected_strategy": detected_strategy,
-        "extract": {
-            "strategy": detected_strategy,
-            "list": {"item_selector": "", "next_page_selector": ""},
-            "fields": {
-                "title": {"selector": "", "attr": "text"},
-                "price": {"selector": "", "attr": "text"},
-                "url": {"selector": "", "attr": "href"},
-                "image": {"selector": "", "attr": "src"},
-            },
-            "normalize": {},
-        },
+        "extract": suggested_extract,
     }
     if isinstance(headers, dict) and headers:
         suggested_settings_patch["fetch"]["headers"] = headers
@@ -472,8 +972,9 @@ def detect_source(
     report = {
         "source_id": source.id,
         "source_key": source.key,
-        "requested_url": url_override,
+        "requested_url": requested_url,
         "url": target_url,
+        "used_url": used_url,
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "fetch": {
             "method": best_attempt.method,

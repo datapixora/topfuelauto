@@ -23,6 +23,9 @@ type ExtractConfig = {
 };
 
 type TestExtractResponse = {
+  requested_url?: string | null;
+  url?: string | null;
+  used_url?: string | null;
   fetch?: {
     method?: string;
     status_code?: number | null;
@@ -65,6 +68,7 @@ const normalizeExtract = (raw: any): ExtractConfig => {
 export default function ExtractorTemplatePanel(props: {
   sourceId: number;
   initialSettingsJson?: Record<string, any> | null;
+  onSourceUpdated?: () => void;
 }) {
   const router = useRouter();
 
@@ -73,7 +77,7 @@ export default function ExtractorTemplatePanel(props: {
     return typeof s === "string" ? s : "";
   }, [props.initialSettingsJson]);
 
-  const initialTestUrl = useMemo(() => {
+  const sharedTestUrl = useMemo(() => {
     const targets = props.initialSettingsJson?.targets;
     const val = targets?.test_url;
     return typeof val === "string" ? val : "";
@@ -84,7 +88,6 @@ export default function ExtractorTemplatePanel(props: {
     [props.initialSettingsJson]
   );
 
-  const [testUrl, setTestUrl] = useState(initialTestUrl);
   const [itemSelector, setItemSelector] = useState(initialExtract.list.item_selector || "");
   const [nextPageSelector, setNextPageSelector] = useState(initialExtract.list.next_page_selector || "");
   const [titleSelector, setTitleSelector] = useState(
@@ -107,9 +110,9 @@ export default function ExtractorTemplatePanel(props: {
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const [runQueued, setRunQueued] = useState<string | null>(null);
+  const [showAppliedBanner, setShowAppliedBanner] = useState(false);
 
   useEffect(() => {
-    setTestUrl(initialTestUrl);
     const next = normalizeExtract(props.initialSettingsJson?.extract || {});
     setItemSelector(next.list.item_selector || "");
     setNextPageSelector(next.list.next_page_selector || "");
@@ -119,7 +122,49 @@ export default function ExtractorTemplatePanel(props: {
     setImageSelector((next.fields?.image?.selector as string) || "");
     setSavedOk(false);
     setRunQueued(null);
-  }, [props.initialSettingsJson, initialTestUrl]);
+
+    if (typeof window !== "undefined") {
+      const bannerKey = `de_extract_banner_${props.sourceId}`;
+      if (sessionStorage.getItem(bannerKey) === "1") {
+        sessionStorage.removeItem(bannerKey);
+        setShowAppliedBanner(true);
+      } else {
+        setShowAppliedBanner(false);
+      }
+
+      const autoKey = `de_extract_autotest_${props.sourceId}`;
+      if (sessionStorage.getItem(autoKey) === "1") {
+        sessionStorage.removeItem(autoKey);
+
+        const urlForTest = sharedTestUrl.trim() || undefined;
+        const extractForTest = next;
+        if (!urlForTest) {
+          setError("Missing Test URL. Set it in Auto-Detect and apply the suggested template again.");
+          return;
+        }
+        if (!extractForTest?.list?.item_selector) {
+          setError("Missing item selector. Apply Suggested Template or set extract.list.item_selector manually.");
+          return;
+        }
+
+        void (async () => {
+          setTesting(true);
+          setError(null);
+          try {
+            const res = (await testExtractDataSource(props.sourceId, {
+              url: urlForTest,
+              extract: extractForTest,
+            })) as TestExtractResponse;
+            setResult(res);
+          } catch (e: any) {
+            setError(e.message || "Test extract failed");
+          } finally {
+            setTesting(false);
+          }
+        })();
+      }
+    }
+  }, [props.initialSettingsJson, props.sourceId]);
 
   const buildConfig = (): ExtractConfig => ({
     strategy: "generic_html_list",
@@ -139,13 +184,15 @@ export default function ExtractorTemplatePanel(props: {
   const preview = result?.items_preview || [];
 
   const saveUrl = useMemo(() => {
-    const fromInput = testUrl.trim();
-    if (fromInput) return fromInput;
+    const fromSettings = sharedTestUrl.trim();
+    if (fromSettings) return fromSettings;
+    const fromUsed = result?.used_url;
+    if (typeof fromUsed === "string" && fromUsed.trim()) return fromUsed.trim();
     const fromFetch = result?.fetch?.final_url;
     return typeof fromFetch === "string" ? fromFetch : "";
-  }, [testUrl, result?.fetch?.final_url]);
+  }, [sharedTestUrl, result?.used_url, result?.fetch?.final_url]);
 
-  const canSave = (preview.length > 0 || !!testUrl.trim()) && !!saveUrl;
+  const canSave = !!saveUrl && (preview.length > 0 || !!sharedTestUrl.trim());
 
   const handleTest = async () => {
     setTesting(true);
@@ -154,7 +201,7 @@ export default function ExtractorTemplatePanel(props: {
     setRunQueued(null);
     try {
       const res = (await testExtractDataSource(props.sourceId, {
-        url: testUrl.trim() || undefined,
+        url: sharedTestUrl.trim() || undefined,
         extract: buildConfig(),
       })) as TestExtractResponse;
       setResult(res);
@@ -167,7 +214,7 @@ export default function ExtractorTemplatePanel(props: {
 
   const handleSave = async () => {
     if (!saveUrl) {
-      setError("Missing URL. Provide a Test URL or run Test Extract first.");
+      setError("Missing Test URL. Set it in Auto-Detect or run Test Extract once to capture a final URL.");
       return;
     }
     setSaving(true);
@@ -187,7 +234,7 @@ export default function ExtractorTemplatePanel(props: {
       });
       setSavedOk(true);
       setRunQueued(null);
-      setTestUrl(saveUrl);
+      await props.onSourceUpdated?.();
       router.refresh();
     } catch (e: any) {
       setError(e.message || "Save failed");
@@ -203,6 +250,7 @@ export default function ExtractorTemplatePanel(props: {
       const res = await runDataSource(props.sourceId);
       const taskId = typeof res?.task_id === "string" ? res.task_id : null;
       setRunQueued(taskId ? `Run queued (task_id=${taskId})` : "Run queued");
+      await props.onSourceUpdated?.();
       router.refresh();
     } catch (e: any) {
       setError(e.message || "Run failed");
@@ -235,8 +283,8 @@ export default function ExtractorTemplatePanel(props: {
       <CardContent className="space-y-4 text-sm">
         {detectedStrategy && detectedStrategy !== "generic_html_list" && (
           <div className="text-xs text-slate-500">
-            Detected strategy is <span className="font-mono">{detectedStrategy}</span>. This template is designed for{" "}
-            <span className="font-mono">generic_html_list</span>, but you can configure it manually.
+            Detected strategy: <span className="font-mono">{detectedStrategy}</span>. This panel configures the{" "}
+            <span className="font-mono">generic_html_list</span> selector template.
           </div>
         )}
 
@@ -252,20 +300,20 @@ export default function ExtractorTemplatePanel(props: {
           </div>
         )}
 
-        <div>
-          <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1">Test URL</label>
-          <input
-            type="text"
-            value={testUrl}
-            onChange={(e) => {
-              setTestUrl(e.target.value);
-              setSavedOk(false);
-              setRunQueued(null);
-            }}
-            placeholder="https://example.com/listings"
-            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
-          />
-          <p className="text-xs text-slate-500 mt-1">Used for Detect, Test Extract, and Save Template.</p>
+        {showAppliedBanner && (
+          <div className="rounded border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
+            Suggested template applied. Click <span className="font-mono">Test Extract</span> to preview items.
+          </div>
+        )}
+
+        <div className="rounded border border-slate-800 bg-slate-900/30 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs uppercase tracking-wide text-slate-400">Test URL</div>
+            <div className="font-mono text-xs text-slate-300 break-all">{sharedTestUrl || "—"}</div>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">
+            Set this once in the Auto-Detect panel. It is used for Detect, Test Extract, and Save Template.
+          </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">

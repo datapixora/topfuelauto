@@ -382,6 +382,14 @@ def _execute_scrape(db: Session, source: Any, run: Any, proxy: Any = None) -> di
     if settings_json.get("proxy_enabled"):
         settings_json = service.decrypt_proxy_settings(settings_json)
 
+    # Prefer a per-source test/list URL when configured (used by Detect/Test Extract/Save Template UI)
+    targets = settings_json.get("targets") if isinstance(settings_json.get("targets"), dict) else {}
+    list_base_url = (
+        targets.get("test_url").strip()
+        if isinstance(targets.get("test_url"), str) and targets.get("test_url").strip()
+        else source.base_url
+    )
+
     # Configure HTTP client with proxy and timeouts
     proxy_used = False
     proxy_meta = {}
@@ -481,8 +489,8 @@ def _execute_scrape(db: Session, source: Any, run: Any, proxy: Any = None) -> di
         for page_num in range(1, source.max_pages_per_run + 1):
             try:
                 # Build page URL with proper query param handling
-                separator = "&" if "?" in source.base_url else "?"
-                page_url = f"{source.base_url}{separator}page={page_num}"
+                separator = "&" if "?" in list_base_url else "?"
+                page_url = f"{list_base_url}{separator}page={page_num}"
                 signature = f"{source.key}:{page_url}"
 
                 logger.info(f"Fetching page {page_num}/{source.max_pages_per_run}: {page_url}")
@@ -543,7 +551,14 @@ def _execute_scrape(db: Session, source: Any, run: Any, proxy: Any = None) -> di
                         }
 
                     # Parse items from page
-                    page_items = _parse_list_page(html, source.key)
+                    remaining = max(int(source.max_items_per_run or 0) - int(items_staged or 0), 0)
+                    page_items = _parse_list_page(
+                        html,
+                        source,
+                        settings_json,
+                        base_url=str(response.url),
+                        max_items=remaining if remaining > 0 else None,
+                    )
 
                     # Only cache non-blocked results with reasonable length
                     if len(html or "") >= 1000:
@@ -637,9 +652,16 @@ def _execute_scrape(db: Session, source: Any, run: Any, proxy: Any = None) -> di
     }
 
 
-def _parse_list_page(html: str, source_key: str) -> list[dict]:
+def _parse_list_page(
+    html: str,
+    source: Any,
+    settings_json: dict,
+    *,
+    base_url: str,
+    max_items: int | None = None,
+) -> list[dict]:
     """
-    Parse items from a list page HTML using BeautifulSoup.
+    Parse items from a list page HTML using the admin-configured extract template (settings_json.extract).
 
     Returns list of dicts with structure:
     {
@@ -659,6 +681,82 @@ def _parse_list_page(html: str, source_key: str) -> list[dict]:
         ]
     }
     """
+    extract_cfg = settings_json.get("extract") if isinstance(settings_json.get("extract"), dict) else None
+    if not extract_cfg:
+        logger.info("No extract template configured for %s (settings_json.extract missing).", getattr(source, "key", "?"))
+        return []
+
+    try:
+        from app.services import source_extract_service
+
+        items_found, rows, errors = source_extract_service.extract_generic_html_list(
+            html or "",
+            extract_cfg,
+            base_url=base_url,
+            max_items=max_items,
+        )
+
+        if errors:
+            logger.info("Extract template warnings for %s: %s", getattr(source, "key", "?"), "; ".join(errors[:3]))
+
+        items: list[dict] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            canonical_url = row.get("url") or row.get("canonical_url")
+            if not isinstance(canonical_url, str) or not canonical_url.strip():
+                continue
+            canonical_url = canonical_url.strip()
+
+            title = row.get("title") if isinstance(row.get("title"), str) else None
+            price_text = row.get("price") if isinstance(row.get("price"), str) else ""
+            price_amount = _extract_number(price_text) if price_text else None
+            currency = _detect_currency(price_text)
+
+            listing_data = {
+                "title": title,
+                "year": None,
+                "make": None,
+                "model": None,
+                "price_amount": price_amount,
+                "currency": currency,
+                "confidence_score": 0.6,
+                "status": "active",
+            }
+
+            attributes = []
+            image_url = row.get("image") if isinstance(row.get("image"), str) else None
+            if image_url:
+                attributes.append({"key": "image", "value_text": image_url})
+            if price_text and price_amount is None:
+                attributes.append({"key": "price_text", "value_text": price_text})
+
+            items.append(
+                {
+                    "canonical_url": canonical_url,
+                    "listing": listing_data,
+                    "attributes": attributes if attributes else None,
+                }
+            )
+
+        logger.info(
+            "Parsed %s items via extract template for %s (items_found=%s)",
+            len(items),
+            getattr(source, "key", "?"),
+            items_found,
+        )
+        return items
+
+    except Exception as e:
+        logger.error(
+            "Failed to parse HTML with extract template for %s: %s",
+            getattr(source, "key", "?"),
+            str(e),
+            exc_info=True,
+        )
+        return []
+
     from bs4 import BeautifulSoup
 
     try:
@@ -783,8 +881,17 @@ def _extract_number(text: str) -> float | None:
         return None
 
     import re
-    # Remove common currency symbols and commas
-    cleaned = re.sub(r'[$,€£¥]', '', text)
+
+    # Normalize Arabic/Persian digits and separators.
+    trans = str.maketrans(
+        "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٬٫",
+        "01234567890123456789,.",
+    )
+    cleaned = str(text).translate(trans)
+
+    # Remove common currency symbols and whitespace.
+    cleaned = cleaned.strip()
+    cleaned = re.sub(r"[$€£¥]", "", cleaned)
 
     # Handle "k" suffix (thousands)
     if 'k' in cleaned.lower():
@@ -792,12 +899,28 @@ def _extract_number(text: str) -> float | None:
         if match:
             return float(match.group(1)) * 1000
 
-    # Extract first number (int or float)
-    match = re.search(r'[\d,]+\.?\d*', cleaned)
+    # Remove thousands separators and extract first number (int or float).
+    cleaned = cleaned.replace(",", "")
+    match = re.search(r'\d+(?:\.\d+)?', cleaned)
     if match:
-        return float(match.group().replace(',', ''))
+        return float(match.group())
 
     return None
+
+
+def _detect_currency(text: str) -> str:
+    lower = (text or "").lower()
+    if "تومان" in lower or "تومن" in lower or "toman" in lower:
+        return "IRT"
+    if "ریال" in lower or "rial" in lower:
+        return "IRR"
+    if "$" in (text or "") or "usd" in lower:
+        return "USD"
+    if "€" in (text or "") or "eur" in lower:
+        return "EUR"
+    if "£" in (text or "") or "gbp" in lower:
+        return "GBP"
+    return "USD"
 
 
 @celery_app.task(name="app.workers.data_engine.enqueue_due_sources")

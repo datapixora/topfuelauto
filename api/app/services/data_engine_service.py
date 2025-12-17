@@ -419,7 +419,18 @@ def update_source(db: Session, source_id: int, source_update: schemas.AdminSourc
                 if value is None:
                     merged_settings.pop(key, None)
                 else:
-                    merged_settings[key] = value
+                    # Safe nested merge for well-known sections to avoid clobbering unrelated keys.
+                    if key in ("targets", "fetch") and isinstance(value, dict) and isinstance(merged_settings.get(key), dict):
+                        existing_section = merged_settings.get(key) or {}
+                        next_section = dict(existing_section)
+                        for sub_key, sub_value in value.items():
+                            if sub_value is None:
+                                next_section.pop(sub_key, None)
+                            else:
+                                next_section[sub_key] = sub_value
+                        merged_settings[key] = next_section
+                    else:
+                        merged_settings[key] = value
             update_data["settings_json"] = merged_settings
 
     # Merge rules normalization (respect legacy toggle if merge_rules omitted)

@@ -160,7 +160,13 @@ def _extract_value(node: Any, attr: Optional[str], base_url: Optional[str]) -> O
     return val
 
 
-def extract_generic_html_list(html: str, extract: dict, *, base_url: Optional[str] = None) -> tuple[int, list[dict], list[str]]:
+def extract_generic_html_list(
+    html: str,
+    extract: dict,
+    *,
+    base_url: Optional[str] = None,
+    max_items: Optional[int] = 5,
+) -> tuple[int, list[dict], list[str]]:
     errors: list[str] = []
     cfg = _normalize_extract_config(extract or {})
 
@@ -181,7 +187,11 @@ def extract_generic_html_list(html: str, extract: dict, *, base_url: Optional[st
     fields: dict = cfg.get("fields") or {}
     items_preview: list[dict] = []
 
-    for node in item_nodes[:5]:
+    limit = None
+    if isinstance(max_items, int) and max_items > 0:
+        limit = max_items
+
+    for node in item_nodes[:limit] if limit is not None else item_nodes:
         out: dict[str, Any] = {}
         for field_name, spec in fields.items():
             if not isinstance(spec, dict):
@@ -242,8 +252,12 @@ def test_extract(
         base_url=fetch_res.fetch.get("final_url") or target_url,
     )
 
+    used_url = fetch_res.fetch.get("final_url") or target_url
     errors = [*fetch_res.errors, *extract_errors]
     return {
+        "requested_url": url_override,
+        "used_url": used_url,
+        "url": target_url,
         "fetch": fetch_res.fetch,
         "items_found": items_found,
         "items_preview": items_preview,

@@ -13,6 +13,9 @@ type DetectCandidate = {
 };
 
 type DetectReport = {
+  requested_url?: string | null;
+  url?: string | null;
+  used_url?: string | null;
   fetch?: {
     method?: string;
     status_code?: number | null;
@@ -30,6 +33,7 @@ type DetectReport = {
 export default function AutoDetectPanel(props: {
   sourceId: number;
   initialSettingsJson?: Record<string, any> | null;
+  onSourceUpdated?: () => void;
 }) {
   const router = useRouter();
 
@@ -50,7 +54,13 @@ export default function AutoDetectPanel(props: {
     };
   }, [props.initialSettingsJson]);
 
-  const [detectUrl, setDetectUrl] = useState("");
+  const initialTestUrl = useMemo(() => {
+    const targets = props.initialSettingsJson?.targets;
+    const val = targets?.test_url;
+    return typeof val === "string" ? val : "";
+  }, [props.initialSettingsJson]);
+
+  const [testUrl, setTestUrl] = useState(initialTestUrl);
   const [detectTryProxy, setDetectTryProxy] = useState(initialFetch.useProxy);
   const [detectTryPlaywright, setDetectTryPlaywright] = useState(initialFetch.usePlaywright);
   const [detectLoading, setDetectLoading] = useState(false);
@@ -69,6 +79,10 @@ export default function AutoDetectPanel(props: {
   }, [initialDetectedStrategy]);
 
   useEffect(() => {
+    setTestUrl(initialTestUrl);
+  }, [initialTestUrl]);
+
+  useEffect(() => {
     setDetectTryProxy(initialFetch.useProxy);
     setDetectTryPlaywright(initialFetch.usePlaywright);
   }, [initialFetch.useProxy, initialFetch.usePlaywright]);
@@ -78,12 +92,15 @@ export default function AutoDetectPanel(props: {
     setLocalError(null);
     try {
       const result = (await detectDataSource(props.sourceId, {
-        url: detectUrl || undefined,
+        url: testUrl.trim() || undefined,
         try_proxy: detectTryProxy,
         try_playwright: detectTryPlaywright,
       })) as DetectReport;
       setDetectResult(result);
       setSelectedStrategy(result?.detected_strategy || "");
+      const usedUrl = typeof result.used_url === "string" ? result.used_url : (result.fetch?.final_url || "");
+      if (usedUrl) setTestUrl(usedUrl);
+      await props.onSourceUpdated?.();
       router.refresh();
     } catch (e: any) {
       setLocalError(e.message || "Detect failed");
@@ -100,6 +117,7 @@ export default function AutoDetectPanel(props: {
       await updateDataSource(props.sourceId, {
         settings_json: { detected_strategy: selectedStrategy },
       });
+      await props.onSourceUpdated?.();
       router.refresh();
     } catch (e: any) {
       setLocalError(e.message || "Apply failed");
@@ -115,6 +133,11 @@ export default function AutoDetectPanel(props: {
     setLocalError(null);
     try {
       await updateDataSource(props.sourceId, { settings_json: patch });
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(`de_extract_autotest_${props.sourceId}`, "1");
+        sessionStorage.setItem(`de_extract_banner_${props.sourceId}`, "1");
+      }
+      await props.onSourceUpdated?.();
       router.refresh();
     } catch (e: any) {
       setLocalError(e.message || "Apply suggested template failed");
@@ -143,17 +166,17 @@ export default function AutoDetectPanel(props: {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1">
-              Override URL (optional)
+              Test URL
             </label>
             <input
               type="text"
-              value={detectUrl}
-              onChange={(e) => setDetectUrl(e.target.value)}
+              value={testUrl}
+              onChange={(e) => setTestUrl(e.target.value)}
               placeholder="https://example.com/listings"
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
             />
             <p className="text-xs text-slate-500 mt-1">
-              Leave blank to use settings_json.targets.test_url (if set) or the source base URL.
+              Single source of truth for Detect, Test Extract, and Save Template (stored in settings_json.targets.test_url).
             </p>
           </div>
           <div className="space-y-2">
