@@ -10,6 +10,7 @@ from app.core.security import get_current_admin
 from app.models.user import User
 from app.schemas import data_engine as schemas
 from app.services import data_engine_service as service
+from app.services import source_detect_service
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,56 @@ def update_source(
         db_source.proxy_pool_summary = None
 
     return db_source
+
+
+class SourceDetectRequest(BaseModel):
+    url: Optional[str] = None
+    try_proxy: bool = False
+    try_playwright: bool = False
+
+
+@router.post("/sources/{source_id}/detect")
+def detect_source(
+    source_id: int,
+    request: SourceDetectRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Auto-detect a source strategy by fetching HTML and applying lightweight fingerprints.
+
+    - Attempts direct httpx first
+    - Optionally retries with proxy (if configured) and/or Playwright
+    - Stores latest detect report to source.settings_json.detect_report and source.settings_json.detected_strategy
+    """
+    db_source = service.get_source(db, source_id)
+    if not db_source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    try:
+        report = source_detect_service.detect_source(
+            db=db,
+            source=db_source,
+            url_override=request.url,
+            try_proxy=request.try_proxy,
+            try_playwright=request.try_playwright,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Detect failed for source_id=%s: %s", source_id, str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Detect failed")
+
+    # Persist report for UI visibility
+    settings = (db_source.settings_json or {}).copy()
+    settings["detect_report"] = report
+    settings["detected_strategy"] = report.get("detected_strategy")
+    db_source.settings_json = settings
+    db.add(db_source)
+    db.commit()
+    db.refresh(db_source)
+
+    return report
 
 
 @router.delete("/sources/{source_id}", status_code=204)

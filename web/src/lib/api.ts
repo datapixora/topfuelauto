@@ -441,6 +441,13 @@ export async function runDataSource(sourceId: number) {
   return apiPost(`/admin/data/sources/${sourceId}/run`, {});
 }
 
+export async function detectDataSource(
+  sourceId: number,
+  payload?: { url?: string; try_proxy?: boolean; try_playwright?: boolean }
+) {
+  return apiPost(`/admin/data/sources/${sourceId}/detect`, payload || {});
+}
+
 export async function listSourceRuns(sourceId: number) {
   return apiGet<any[]>(`/admin/data/sources/${sourceId}/runs`);
 }

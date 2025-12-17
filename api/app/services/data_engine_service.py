@@ -363,7 +363,7 @@ def list_sources(db: Session, skip: int = 0, limit: int = 100, enabled_only: boo
 
 
 def update_source(db: Session, source_id: int, source_update: schemas.AdminSourceUpdate) -> Optional[AdminSource]:
-    """Update an admin source (encrypts proxy credentials in settings_json)."""
+    """Update an admin source (PATCH semantics, merges settings_json keys)."""
     db_source = get_source(db, source_id)
     if not db_source:
         return None
@@ -372,21 +372,23 @@ def update_source(db: Session, source_id: int, source_update: schemas.AdminSourc
 
     # Handle proxy_mode changes
     if "proxy_mode" in update_data:
-        from app.models.data_source import ProxyMode
+        from app.models.admin_source import ProxyMode
         proxy_mode = update_data["proxy_mode"]
 
         if proxy_mode == ProxyMode.POOL:
             # Clear manual proxy fields from settings_json when switching to pool
-            if "settings_json" not in update_data:
-                update_data["settings_json"] = db_source.settings_json.copy() if db_source.settings_json else {}
-            if update_data["settings_json"]:
-                update_data["settings_json"].pop("proxy_enabled", None)
-                update_data["settings_json"].pop("proxy_url", None)
-                update_data["settings_json"].pop("proxy_host", None)
-                update_data["settings_json"].pop("proxy_port", None)
-                update_data["settings_json"].pop("proxy_username", None)
-                update_data["settings_json"].pop("proxy_password", None)
-                update_data["settings_json"].pop("proxy_type", None)
+            # settings_json is treated as a patch; set keys to None to delete.
+            if "settings_json" not in update_data or update_data.get("settings_json") is None:
+                update_data["settings_json"] = {}
+            update_data["settings_json"].update({
+                "proxy_enabled": None,
+                "proxy_url": None,
+                "proxy_host": None,
+                "proxy_port": None,
+                "proxy_username": None,
+                "proxy_password": None,
+                "proxy_type": None,
+            })
             # Update proxy_enabled for compatibility
             update_data["proxy_enabled"] = True
 
@@ -401,9 +403,24 @@ def update_source(db: Session, source_id: int, source_update: schemas.AdminSourc
             if "proxy_id" not in update_data:
                 update_data["proxy_id"] = None
 
-    # Encrypt proxy credentials if settings_json is being updated
-    if "settings_json" in update_data and update_data["settings_json"]:
-        update_data["settings_json"] = encrypt_proxy_settings(update_data["settings_json"])
+    # settings_json PATCH semantics:
+    # - Missing: no change
+    # - null: clear settings_json
+    # - dict: merge into existing (None values delete keys)
+    if "settings_json" in update_data:
+        incoming_settings = update_data["settings_json"]
+        if incoming_settings is None:
+            update_data["settings_json"] = None
+        else:
+            existing_settings = db_source.settings_json.copy() if db_source.settings_json else {}
+            patch_settings = encrypt_proxy_settings(incoming_settings)
+            merged_settings = existing_settings.copy()
+            for key, value in (patch_settings or {}).items():
+                if value is None:
+                    merged_settings.pop(key, None)
+                else:
+                    merged_settings[key] = value
+            update_data["settings_json"] = merged_settings
 
     # Merge rules normalization (respect legacy toggle if merge_rules omitted)
     if "merge_rules" in update_data or "settings_json" in update_data:
