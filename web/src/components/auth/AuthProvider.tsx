@@ -9,7 +9,9 @@ type AuthUser = {
   email: string;
   is_admin?: boolean;
   is_active?: boolean;
+  plan_id?: number | null;
   plan_name?: string | null;
+  plan_key?: string | null;
 };
 
 type AuthContextType = {

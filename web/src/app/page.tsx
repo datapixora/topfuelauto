@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Button } from "../components/ui/button";
+import PlanCta from "../components/marketing/PlanCta";
 
 type PublicPlan = {
   id: number;
@@ -145,7 +146,7 @@ export default async function HomePage() {
               Start searching (Free)
             </Link>
             <Link
-              href="/pricing"
+              href="#plans"
               className="inline-flex items-center rounded-md border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-800"
             >
               See Plans
@@ -242,14 +243,14 @@ export default async function HomePage() {
         ))}
       </section>
 
-      <section className="space-y-4">
+      <section className="space-y-4 scroll-mt-20" id="plans">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-semibold">Plans</h2>
-            <p className="text-sm text-slate-400">Choose the right fit and upgrade inside pricing.</p>
+            <p className="text-sm text-slate-400">Pick a plan, then upgrade anytime. Billing handled via Stripe.</p>
           </div>
           <Link href="/pricing" className="text-sm text-brand-accent hover:underline">
-            See Plans
+            See all plans
           </Link>
         </div>
         {plans.length === 0 ? (
@@ -259,57 +260,57 @@ export default async function HomePage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3 items-stretch">
             {plans.map((plan) => {
               const bulletFeatures = Array.isArray(plan.features) ? plan.features : [];
               const visibleFeatures = bulletFeatures.slice(0, 6);
               const truncated = bulletFeatures.length > visibleFeatures.length;
               const symbol = currencySymbol(plan.currency);
               const priceText =
-                plan.price_monthly == null ? "Custom" : `${symbol}${plan.price_monthly}`;
+                plan.price_monthly == null ? "Custom" : `${symbol}${Number(plan.price_monthly).toLocaleString()}`;
               const ctaLabel = plan.slug === "pro" ? "Upgrade to Pro" : "Get Started";
-              const signupHref = `/signup?plan=${encodeURIComponent(plan.slug)}`;
 
               return (
                 <Card
                   key={plan.id}
-                  className={`relative border-slate-800 bg-slate-900/70 ${plan.is_featured ? "border-brand-accent/60 bg-slate-900/85 md:scale-[1.02]" : ""}`}
+                  className={`relative flex h-full flex-col border-slate-800 bg-slate-900/70 ${
+                    plan.is_featured ? "border-brand-accent/60 bg-slate-900/85 shadow-md md:scale-[1.02]" : ""
+                  }`}
                 >
                   {plan.is_featured && (
                     <div className="absolute right-4 top-4 rounded-full bg-brand-gold/20 px-3 py-1 text-xs font-semibold text-brand-gold">
                       Most Popular
                     </div>
                   )}
-                  <CardHeader className="space-y-2">
+                  <CardHeader className="space-y-3">
                     <CardTitle className="text-xl">{plan.name}</CardTitle>
                     <div className="flex items-end gap-2">
                       <div className="text-3xl font-semibold text-slate-50">{priceText}</div>
-                      <div className="pb-1 text-sm text-slate-400">{plan.price_monthly == null ? "" : "/month"}</div>
+                      <div className="pb-1 text-sm text-slate-400">{plan.price_monthly == null ? "" : "/mo"}</div>
                     </div>
                     {plan.description && <div className="text-sm text-slate-300">{plan.description}</div>}
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <ul className="space-y-2 text-sm text-slate-300">
-                      {visibleFeatures.map((feature) => (
-                        <li key={feature} className="flex gap-2">
-                          <span className="mt-1 h-1.5 w-1.5 flex-none rounded-full bg-brand-accent" />
-                          <span>{feature}</span>
-                        </li>
-                      ))}
-                      {truncated && (
-                        <li className="flex gap-2 text-slate-400">
-                          <span className="mt-1 h-1.5 w-1.5 flex-none rounded-full bg-slate-600" />
-                          <span>and more</span>
-                        </li>
-                      )}
-                    </ul>
+                  <CardContent className="flex flex-1 flex-col gap-4">
+                    {visibleFeatures.length > 0 && (
+                      <ul className="space-y-2 text-sm text-slate-300">
+                        {visibleFeatures.map((feature) => (
+                          <li key={feature} className="flex gap-2">
+                            <span className="mt-1 text-brand-accent">✓</span>
+                            <span>{feature}</span>
+                          </li>
+                        ))}
+                        {truncated && <li className="text-slate-400">and more</li>}
+                      </ul>
+                    )}
 
-                    <Link
-                      href={signupHref}
-                      className={`inline-flex w-full items-center justify-center rounded-md px-5 py-2 text-sm font-semibold transition ${plan.is_featured ? "bg-brand-accent text-slate-950 hover:brightness-110" : "border border-slate-700 text-slate-100 hover:bg-slate-800"}`}
-                    >
-                      {ctaLabel}
-                    </Link>
+                    <div className="mt-auto pt-2">
+                      <PlanCta
+                        planId={plan.id}
+                        planSlug={plan.slug}
+                        label={ctaLabel}
+                        emphasized={plan.is_featured}
+                      />
+                    </div>
                   </CardContent>
                 </Card>
               );
@@ -321,7 +322,7 @@ export default async function HomePage() {
             href="/pricing"
             className="inline-flex items-center rounded-md bg-brand-accent px-5 py-2 text-sm font-semibold text-slate-950 transition hover:brightness-110"
           >
-            See Plans
+            See all plans
           </Link>
         </div>
       </section>
