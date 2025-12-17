@@ -1,7 +1,16 @@
 from celery import Celery
+import logging
 from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
+
+# Log release info on worker startup
+logger.info(f"=== Worker Starting ===")
+logger.info(f"Git SHA: {settings.git_sha or 'unknown'}")
+logger.info(f"Build Time: {settings.build_time or 'unknown'}")
+logger.info(f"=======================")
 
 celery_app = Celery(
     "topfuelauto",

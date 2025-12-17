@@ -12,12 +12,19 @@ from app.routers.admin import router as admin_router
 from app.routers.admin_plans import router as admin_plans_router
 from app.routers.admin_data import router as admin_data_router
 from app.routers.admin_proxies import router as admin_proxies_router
+from app.routers.meta import router as meta_router
 
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
+
+# Log release info on startup
+logger.info(f"=== API Starting ===")
+logger.info(f"Git SHA: {settings.git_sha or 'unknown'}")
+logger.info(f"Build Time: {settings.build_time or 'unknown'}")
+logger.info(f"===================")
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,6 +93,7 @@ app.include_router(search.router)
 app.include_router(vin.router)
 app.include_router(broker.router)
 app.include_router(health_router)
+app.include_router(meta_router)
 app.include_router(admin_router)
 app.include_router(admin_plans_router)
 app.include_router(admin_data_router)

@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     crawl_search_max_sources: int = Field(2, alias="CRAWL_SEARCH_MAX_SOURCES")
     crawl_search_min_results: int = Field(3, alias="CRAWL_SEARCH_MIN_RESULTS")
 
+    # Release tracking
+    git_sha: str | None = Field(default=None, alias="GIT_SHA")
+    build_time: str | None = Field(default=None, alias="BUILD_TIME")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False)
 
     @field_validator("cors_origins", mode="before")
