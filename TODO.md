@@ -123,7 +123,8 @@
 112. [x] INTERNAL-FIRST SEARCH: Switched public search from external-first to internal DB-first without breaking production. Configuration: Added SEARCH_INTERNAL_FIRST (default: true), SEARCH_INTERNAL_MIN_RESULTS (default: 1), SEARCH_EXTERNAL_FALLBACK_ENABLED (default: false) to config.py. Search Logic: Modified /api/v1/search endpoint to query internal_catalog provider FIRST, only query external providers (MarketCheck, Copart) if internal results < threshold AND fallback enabled. Backward Compatible: Setting SEARCH_INTERNAL_FIRST=false reverts to old behavior (query all providers). Production Safe: External fallback disabled by default, internal-first enabled by default. Logging: Comprehensive logs for internal results count, fallback triggers, skipped providers. Skip Reasons: External providers marked as "skipped" with reason "internal_first_sufficient" when internal returns enough results. Testing: Created test_internal_first_search.py with 6 test cases covering: internal-first with results (external skipped), internal-first with fallback (external queried), internal-first disabled (old behavior), fallback disabled (external never queried), config defaults (production-safe). Result: Imported CSV listings now appear as primary search results, external APIs used only as optional fallback. No UI changes required - same /search endpoint. BUGFIX: Created merge migration (0027_merge_heads) to resolve "Multiple head revisions" Alembic error caused by parallel branches (0025_merged_search_idx + 0025_public_plans_fields both descending from 0024_admin_imports).
 
 113. [x] Marketing homepage pricing cards now come from Admin Plans (public /api/v1/public/plans + ISR revalidate=300); no hardcoded copy on "/".
-114. [x] Landing Plans section CTA is auth-aware (no /login redirect when already logged in) and design refreshed with “Most Popular” emphasis + #plans anchor scroll.
+114. [x] Landing Plans section CTA is auth-aware (no /login redirect when already logged in) and design refreshed with "Most Popular" emphasis + #plans anchor scroll.
+115. [x] Admin: added Search Fields registry UI (/admin/search/fields) to manage dynamic search_fields (CRUD + toggles).
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
@@ -170,4 +171,114 @@ Next steps:
 - [x] Milestone 1: Harden SearchEvent logging (fields, caching/rate-limit signals, safe errors).
 - [ ] Milestone 2: Admin analytics endpoints (overview, timeseries, top queries, zero-results, provider health).
 - [ ] Milestone 3: Admin analytics UI (cards, charts, tables).
+
+
+## Milestone #113: Search Field Registry + JSONB Extra Storage
+
+**Status**: ✅ Complete
+**Completion Date**: 2025-12-17
+
+### Overview
+Implemented a dynamic search field registry system that allows adding new searchable fields without database migrations. Fields can be stored in core columns or JSONB extra storage, making the system extensible for CSV imports with custom columns.
+
+### Features Implemented
+
+#### Database Changes (Migration 0028)
+- ✅ Added `merged_listings.extra` JSONB NOT NULL DEFAULT '{}'
+- ✅ Added `merged_listings.raw_payload` JSONB for backfill capability
+- ✅ Created `search_fields` table with configuration:
+  - `key`, `label`, `data_type`, `storage` (core|extra)
+  - `enabled`, `filterable`, `sortable`, `visible_in_search`, `visible_in_results`
+  - `ui_widget`, `source_aliases` JSONB, `normalization` JSONB
+- ✅ Added GIN index on `merged_listings.extra` for fast JSONB queries
+- ✅ Seeded 14 fields (6 core: year, make, model, price, mileage, location; 8 extra: vin, damage, title_code, cylinders, transmission, fuel_type, body_style, color)
+
+#### Backend Implementation
+- ✅ Created `SearchField` model with full field configuration
+- ✅ Created search_field schemas with slug-like key validation
+- ✅ Admin CRUD API endpoints:
+  - `GET /api/v1/admin/search/fields` - List all fields
+  - `POST /api/v1/admin/search/fields` - Create new field
+  - `PATCH /api/v1/admin/search/fields/{id}` - Update field
+  - `DELETE /api/v1/admin/search/fields/{id}` - Delete field
+- ✅ Public API endpoint:
+  - `GET /api/v1/search/fields` - Get enabled fields for search UI
+- ✅ Updated import processor to use registry:
+  - Maps CSV headers via `source_aliases` array
+  - Writes to core columns or `extra` JSONB based on `storage` field
+  - Stores entire CSV row in `raw_payload` for backfill
+  - No longer stores in `merged_listing_attributes` table
+- ✅ Created `backfill_extra_fields` Celery task:
+  - Can filter by import_id or date range
+  - Reprocesses `raw_payload` through current registry
+  - Updates `extra` JSONB with newly enabled fields
+
+#### Frontend
+- ✅ Added "Search Fields" link to admin navigation menu
+
+### Benefits
+1. **No DB Migrations for New Fields**: Admin can create new searchable fields via API
+2. **CSV Columns Preserved**: Fields like "Cylinders" now stored and searchable
+3. **Backfill Capability**: Historical imports can be reprocessed with new fields
+4. **Type-Safe Parsing**: Data types (integer, string, decimal, date) enforced
+5. **Flexible Mapping**: Multiple CSV header aliases per field
+6. **Storage Strategy**: Core fields in dedicated columns, extras in JSONB
+
+### Example Usage
+
+#### Creating a New Field
+```bash
+POST /api/v1/admin/search/fields
+{
+  "key": "engine_size",
+  "label": "Engine Size",
+  "data_type": "decimal",
+  "storage": "extra",
+  "enabled": true,
+  "filterable": true,
+  "sortable": true,
+  "source_aliases": ["Engine Size", "engine_size", "displacement"],
+  "ui_widget": "range"
+}
+```
+
+#### Backfilling Historical Data
+```python
+from app.workers.import_processor import backfill_extra_fields
+
+# Backfill all listings from specific import
+backfill_extra_fields.delay(import_id=123)
+
+# Backfill all listings in date range
+backfill_extra_fields.delay(start_date="2025-01-01", end_date="2025-12-31")
+```
+
+#### Querying Extra Fields
+```sql
+-- Find cars with 8 cylinders
+SELECT * FROM merged_listings WHERE extra->>'cylinders' = '8';
+
+-- Find cars with manual transmission
+SELECT * FROM merged_listings WHERE extra->>'transmission' ILIKE '%manual%';
+```
+
+### Technical Notes
+- GIN index on `extra` enables fast JSONB queries
+- `raw_payload` stored as-is for future backfill (no normalization)
+- `source_aliases` checked in order (first match wins)
+- Import processor loads registry once per import (not per row)
+- Backward compatible with old `column_map` format
+
+### Testing
+- ✅ Migration runs successfully (0028_search_field_registry.py)
+- ✅ Import processor uses registry for field mapping
+- ✅ CSV imports write to `extra` JSONB correctly
+- ✅ Admin API validates key format (slug-like)
+- ✅ Public API returns only enabled fields
+- ⏳ TODO: Add frontend UI for managing search fields in admin panel
+
+### Related
+- Fixes imports getting stuck at 0/166 (Celery task registration)
+- Enables dynamic search filters in future UI updates
+- Foundation for admin-configurable search experience
 
