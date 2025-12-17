@@ -282,3 +282,22 @@ SELECT * FROM merged_listings WHERE extra->>'transmission' ILIKE '%manual%';
 - Enables dynamic search filters in future UI updates
 - Foundation for admin-configurable search experience
 
+
+### Bugfix: ResponseValidationError in GET /api/v1/admin/search/fields
+**Date**: 2025-12-17
+**Issue**: Endpoint returned 500 error due to datetime serialization mismatch  
+**Root Cause**: Pydantic schema expected `created_at`/`updated_at` as `str`, but SQLAlchemy returned `datetime` objects
+
+**Fix Applied**:
+- Changed `SearchFieldResponse.created_at` and `updated_at` from `str` to `datetime` type
+- Imported `datetime` in search_field.py schemas
+- Removed redundant `orm_mode` (Pydantic v2 uses `from_attributes` only)
+- Added comprehensive test suite (`test_admin_search_fields.py`) with 5 test cases:
+  - ✅ `test_list_search_fields_success` - Validates 200 + proper datetime serialization
+  - ✅ `test_get_search_field_by_id` - Single field retrieval
+  - ✅ `test_create_search_field` - POST new field  
+  - ✅ `test_create_field_invalid_key` - Validation error handling
+  - ✅ `test_list_fields_without_auth_fails` - Auth protection
+
+**Result**: Endpoint now properly serializes SQLAlchemy datetime objects to ISO format strings in JSON responses.
+
