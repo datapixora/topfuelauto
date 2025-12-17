@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.auth import get_current_admin
+from app.core.security import get_current_admin
 from app.models.user import User
 from app.schemas.admin_import import (
     ImportUploadResponse,
