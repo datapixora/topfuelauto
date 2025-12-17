@@ -109,7 +109,10 @@ def upgrade() -> None:
             normalized = _normalize_features(feats)
             if normalized != feats:
                 bind.execute(
-                    sa.text("UPDATE plans SET features = :features::jsonb WHERE id = :id"),
+                    sa.text("UPDATE plans SET features = CAST(:features AS jsonb) WHERE id = :id").bindparams(
+                        sa.bindparam("features", type_=sa.String),
+                        sa.bindparam("id", type_=sa.Integer)
+                    ),
                     {"id": row[0], "features": json.dumps(normalized)},
                 )
 
