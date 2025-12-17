@@ -106,11 +106,29 @@ def delete_source(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Delete an admin data source (and cascade delete runs/items)."""
-    success = service.delete_source(db, source_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Source not found")
-    return None
+    """
+    Delete an admin data source (and cascade delete runs/items).
+
+    Returns:
+        - 204: Successfully deleted
+        - 404: Source not found
+        - 409: Cannot delete due to constraint violation (should not happen with CASCADE)
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        success = service.delete_source(db, source_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Source not found")
+        return None
+    except IntegrityError as e:
+        # This should not happen with CASCADE constraints, but handle gracefully
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete source due to database constraint: {error_msg}. "
+                   f"This may indicate missing CASCADE constraints. Please contact support."
+        )
 
 
 @router.post("/sources/{source_id}/toggle", response_model=schemas.AdminSourceOut)
