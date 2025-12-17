@@ -12,6 +12,7 @@ from app.routers.admin import router as admin_router
 from app.routers.admin_plans import router as admin_plans_router
 from app.routers.admin_data import router as admin_data_router
 from app.routers.admin_proxies import router as admin_proxies_router
+from app.routers.admin_imports import router as admin_imports_router
 from app.routers.meta import router as meta_router
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,7 @@ app.include_router(admin_router)
 app.include_router(admin_plans_router)
 app.include_router(admin_data_router)
 app.include_router(admin_proxies_router)
+app.include_router(admin_imports_router)
 app.include_router(billing.router)
 app.include_router(assist.router)
 app.include_router(alerts.router)

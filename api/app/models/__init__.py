@@ -25,3 +25,4 @@ from app.models.staged_listing_attribute import StagedListingAttribute
 from app.models.merged_listing import MergedListing
 from app.models.merged_listing_attribute import MergedListingAttribute
 from app.models.proxy_endpoint import ProxyEndpoint
+from app.models.admin_import import AdminImport
