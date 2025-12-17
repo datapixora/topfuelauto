@@ -12,8 +12,8 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin-plans"])
 
 @router.get("/plans", response_model=PlanListResponse)
 def list_admin_plans(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
-    """Return plans from the database ordered by id."""
-    plans = db.query(Plan).order_by(Plan.id.asc()).all()
+    """Return plans from the database ordered for display."""
+    plans = db.query(Plan).order_by(Plan.sort_order.asc(), Plan.created_at.asc()).all()
     return {"plans": plans}
 
 
@@ -29,6 +29,11 @@ def update_admin_plan(
         raise HTTPException(status_code=404, detail="Plan not found")
 
     update_data = payload.dict(exclude_unset=True)
+
+    # Enforce at most one featured plan (best-effort).
+    if update_data.get("is_featured") is True:
+        db.query(Plan).filter(Plan.id != plan_id).update({"is_featured": False})
+
     for field, value in update_data.items():
         setattr(plan, field, value)
 
@@ -40,5 +45,10 @@ def update_admin_plan(
 
 @router.get("/plans/public", response_model=PlanListResponse)
 def list_public_plans(db: Session = Depends(get_db)):
-    plans = db.query(Plan).filter(Plan.is_active.is_(True)).order_by(Plan.id.asc()).all()
+    plans = (
+        db.query(Plan)
+        .filter(Plan.is_active.is_(True))
+        .order_by(Plan.sort_order.asc(), Plan.created_at.asc())
+        .all()
+    )
     return {"plans": plans}

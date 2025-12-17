@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nUse proxy pool selection in source proxy settings\n\nBackend implementation:\n- Add ProxyMode enum (none/pool/manual) to AdminSource model\n- Add proxy_mode, proxy_id, proxy_enabled fields to admin_sources table\n- Create GET /api/v1/admin/proxies/options endpoint for proxy selection\n- Update source CRUD endpoints to return proxy_pool_summary\n- Handle proxy_mode logic in update_source (clear manual fields for pool mode)\n- Update data engine scraping to respect source.proxy_mode\n- Add database migration 0020_source_proxy_mode.py\n\nFeatures:\n- Sources can now use proxy pool, manual proxy, or no proxy\n- Pool mode shows summary (enabled count, weight sum, last exit IP)\n- Automatic cleanup of manual proxy settings when switching to pool\n- Warning logged if pool mode selected but DATA_ENGINE_USE_PROXY_POOL flag off\n- Backward compatibility with existing settings_json proxy config\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m compileall:*)",
+      "Bash(npm run build:*)",
+      "Bash(git restore:*)",
+      "Bash(git pull:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(python -m alembic:*)",
+      "Bash(python:*)"
+    ]
+  }
+}

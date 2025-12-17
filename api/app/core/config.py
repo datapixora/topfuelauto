@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     git_sha: str | None = Field(default=None, alias="GIT_SHA")
     build_time: str | None = Field(default=None, alias="BUILD_TIME")
 
+    # Internal-first search configuration
+    search_internal_first: bool = Field(default=True, alias="SEARCH_INTERNAL_FIRST")
+    search_internal_min_results: int = Field(default=1, alias="SEARCH_INTERNAL_MIN_RESULTS")
+    search_external_fallback_enabled: bool = Field(default=False, alias="SEARCH_EXTERNAL_FALLBACK_ENABLED")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False)
 
     @field_validator("cors_origins", mode="before")

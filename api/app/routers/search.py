@@ -368,35 +368,98 @@ def search(
     pending_job_id = None
     pending_message = None
 
-    try:
-        for provider in providers:
-            # Check if provider should be executed based on capabilities
-            should_execute, skip_reason = _should_execute_provider(provider, filters)
+    # Internal-first search logic
+    internal_provider = None
+    external_providers = []
 
-            if not should_execute:
-                # Provider skipped - add to sources with skip reason
+    for provider in providers:
+        if provider.name == "internal_catalog":
+            internal_provider = provider
+        else:
+            external_providers.append(provider)
+
+    try:
+        # STEP 1: Query internal catalog first if internal-first mode is enabled
+        if settings.search_internal_first and internal_provider:
+            should_execute, skip_reason = _should_execute_provider(internal_provider, filters)
+
+            if should_execute:
+                provider_items, provider_total, meta = internal_provider.search_listings(
+                    query=q,
+                    filters=filters,
+                    page=page,
+                    page_size=page_size,
+                )
+                items.extend(provider_items)
+                total += provider_total
+                sources.append(meta)
+                logging.getLogger(__name__).info(
+                    f"Internal catalog returned {provider_total} results"
+                )
+            else:
                 sources.append({
-                    "name": provider.name,
+                    "name": internal_provider.name,
                     "enabled": True,
                     "skipped": True,
                     "skip_reason": skip_reason,
                 })
-                skipped_providers.append({"name": provider.name, "reason": skip_reason})
-                logging.getLogger(__name__).info(
-                    f"Skipped provider {provider.name}: {skip_reason}"
-                )
-                continue
+                skipped_providers.append({"name": internal_provider.name, "reason": skip_reason})
 
-            # Execute provider
-            provider_items, provider_total, meta = provider.search_listings(
-                query=q,
-                filters=filters,
-                page=page,
-                page_size=page_size,
+        # STEP 2: Query external providers only if:
+        # - Internal-first is disabled, OR
+        # - Internal results < threshold AND external fallback is enabled
+        should_query_external = (
+            not settings.search_internal_first or
+            (total < settings.search_internal_min_results and settings.search_external_fallback_enabled)
+        )
+
+        if should_query_external:
+            # If using fallback, log it
+            if settings.search_internal_first and total < settings.search_internal_min_results:
+                logging.getLogger(__name__).info(
+                    f"Internal results ({total}) below threshold ({settings.search_internal_min_results}), "
+                    f"querying external providers (fallback enabled: {settings.search_external_fallback_enabled})"
+                )
+
+            for provider in external_providers:
+                should_execute, skip_reason = _should_execute_provider(provider, filters)
+
+                if not should_execute:
+                    sources.append({
+                        "name": provider.name,
+                        "enabled": True,
+                        "skipped": True,
+                        "skip_reason": skip_reason,
+                    })
+                    skipped_providers.append({"name": provider.name, "reason": skip_reason})
+                    logging.getLogger(__name__).info(
+                        f"Skipped provider {provider.name}: {skip_reason}"
+                    )
+                    continue
+
+                provider_items, provider_total, meta = provider.search_listings(
+                    query=q,
+                    filters=filters,
+                    page=page,
+                    page_size=page_size,
+                )
+                items.extend(provider_items)
+                total += provider_total
+                sources.append(meta)
+        else:
+            # Mark external providers as skipped (not queried due to internal-first logic)
+            for provider in external_providers:
+                sources.append({
+                    "name": provider.name,
+                    "enabled": True,
+                    "skipped": True,
+                    "skip_reason": "internal_first_sufficient",
+                })
+                skipped_providers.append({"name": provider.name, "reason": "internal_first_sufficient"})
+            logging.getLogger(__name__).info(
+                f"Skipping external providers - internal catalog returned sufficient results ({total})"
             )
-            items.extend(provider_items)
-            total += provider_total
-            sources.append(meta)
+
     except Exception:
         status = "error"
         error_code = "provider_error"
