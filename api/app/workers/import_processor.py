@@ -14,6 +14,7 @@ from app.core.database import SessionLocal
 from app.models.admin_import import AdminImport
 from app.models.merged_listing import MergedListing
 from app.models.merged_listing_attribute import MergedListingAttribute
+from app.models.search_field import SearchField
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -118,74 +119,112 @@ def parse_sale_date(value: str) -> Optional[datetime]:
 def build_listing_from_row(
     row: Dict[str, str],
     column_map: Dict[str, str],
-    source_key: str
-) -> tuple[Dict[str, Any], Dict[str, str]]:
+    source_key: str,
+    db: Session
+) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     """
-    Build MergedListing fields and extra attributes from CSV row using column mapping.
+    Build MergedListing fields using search_fields registry.
 
     Returns:
-        (listing_fields, extra_attributes)
+        (listing_fields, extra_fields, raw_payload)
     """
     listing_fields = {}
-    extra_attributes = {}
+    extra_fields = {}
+    raw_payload = dict(row)  # Store original CSV row for backfill
 
-    # Reverse mapping: target_field -> csv_column
+    # Load search fields registry (cached per import)
+    search_fields = db.query(SearchField).filter(SearchField.enabled == True).all()
+
+    # Build mapping: CSV header -> SearchField
+    csv_to_field = {}
+    for field in search_fields:
+        for alias in field.source_aliases:
+            if alias in row:
+                csv_to_field[alias] = field
+                break
+
+    # Reverse mapping from old column_map (for backwards compatibility)
     reverse_map = {v: k for k, v in column_map.items()}
 
-    # Required field: canonical_url
+    # Required field: canonical_url (special case, not in search_fields)
     if 'url' in reverse_map:
         listing_fields['canonical_url'] = row.get(reverse_map['url'], '').strip()
     else:
         raise ValueError("Missing required field 'url' in column mapping")
 
-    # Optional fields with parsing
+    # External ID (special case)
     if 'external_id' in reverse_map:
         listing_fields['source_listing_id'] = row.get(reverse_map['external_id'], '').strip() or None
 
-    if 'year' in reverse_map:
-        listing_fields['year'] = parse_year(row.get(reverse_map['year'], ''))
-
-    if 'make' in reverse_map:
-        listing_fields['make'] = row.get(reverse_map['make'], '').strip().upper() or None
-
-    if 'model' in reverse_map:
-        listing_fields['model'] = row.get(reverse_map['model'], '').strip() or None
-
-    if 'price' in reverse_map:
-        listing_fields['price_amount'] = parse_price(row.get(reverse_map['price'], ''))
-
-    if 'mileage' in reverse_map:
-        listing_fields['odometer_value'] = parse_mileage(row.get(reverse_map['mileage'], ''))
-
-    if 'location' in reverse_map:
-        listing_fields['location'] = row.get(reverse_map['location'], '').strip() or None
-
-    if 'sale_date' in reverse_map:
-        listing_fields['sale_datetime'] = parse_sale_date(row.get(reverse_map['sale_date'], ''))
-
+    # Title (special case)
     if 'title' in reverse_map:
         title_val = row.get(reverse_map['title'], '').strip()
-        listing_fields['title'] = title_val[:500] if title_val else None  # Truncate to 500 chars
+        listing_fields['title'] = title_val[:500] if title_val else None
 
-    # Set source_key
+    # Process fields from registry
+    for csv_header, field in csv_to_field.items():
+        value = row.get(csv_header, '').strip()
+        if not value:
+            continue
+
+        # Parse value based on data_type
+        parsed_value = None
+        if field.data_type == 'integer':
+            if field.key in ['year', 'mileage']:
+                parsed_value = parse_year(value) if field.key == 'year' else parse_mileage(value)
+            else:
+                try:
+                    parsed_value = int(value)
+                except ValueError:
+                    logger.warning(f"Failed to parse integer for {field.key}: {value}")
+        elif field.data_type == 'decimal':
+            if field.key == 'price':
+                parsed_value = parse_price(value)
+            else:
+                try:
+                    parsed_value = Decimal(value)
+                except (ValueError, InvalidOperation):
+                    logger.warning(f"Failed to parse decimal for {field.key}: {value}")
+        elif field.data_type == 'date':
+            if field.key == 'sale_date':
+                parsed_value = parse_sale_date(value)
+            else:
+                try:
+                    parsed_value = datetime.fromisoformat(value)
+                except ValueError:
+                    logger.warning(f"Failed to parse date for {field.key}: {value}")
+        elif field.data_type == 'string':
+            parsed_value = value if field.key not in ['make'] else value.upper()
+
+        if parsed_value is None and field.data_type == 'string':
+            parsed_value = value
+
+        # Store in appropriate location
+        if field.storage == 'core':
+            # Map to core column names
+            column_name_map = {
+                'year': 'year',
+                'make': 'make',
+                'model': 'model',
+                'price': 'price_amount',
+                'mileage': 'odometer_value',
+                'location': 'location',
+                'sale_date': 'sale_datetime',
+            }
+            column_name = column_name_map.get(field.key, field.key)
+            if column_name in ['year', 'make', 'model', 'price_amount', 'odometer_value', 'location', 'sale_datetime']:
+                listing_fields[column_name] = parsed_value
+        elif field.storage == 'extra':
+            # Store in extra JSONB
+            extra_fields[field.key] = parsed_value
+
+    # Set defaults
     listing_fields['source_key'] = source_key
-    listing_fields['currency'] = 'USD'  # Default currency
+    listing_fields['currency'] = 'USD'
     listing_fields['status'] = 'active'
     listing_fields['fetched_at'] = datetime.utcnow()
 
-    # Store ALL unmapped columns as extra attributes
-    for csv_col, csv_val in row.items():
-        if csv_col not in column_map:
-            # Store unmapped column as attribute
-            extra_attributes[csv_col] = csv_val
-
-    # Also store known fields that don't have dedicated columns
-    known_extras = ['vin', 'damage', 'title_code', 'retail_value']
-    for field in known_extras:
-        if field in reverse_map:
-            extra_attributes[field] = row.get(reverse_map[field], '').strip()
-
-    return listing_fields, extra_attributes
+    return listing_fields, extra_fields, raw_payload
 
 
 @celery_app.task(bind=True)
@@ -250,13 +289,17 @@ def process_import(self, import_id: int):
             row_num += 1
 
             try:
-                # Build listing from row
-                listing_fields, extra_attributes = build_listing_from_row(row, column_map, source_key)
+                # Build listing from row using search_fields registry
+                listing_fields, extra_fields, raw_payload = build_listing_from_row(row, column_map, source_key, db)
 
                 if not listing_fields.get('canonical_url'):
                     errors.append(f"Row {row_num}: Missing URL")
                     admin_import.error_count += 1
                     continue
+
+                # Add extra and raw_payload to listing fields
+                listing_fields['extra'] = extra_fields
+                listing_fields['raw_payload'] = raw_payload
 
                 # Upsert MergedListing (idempotent by source_key + canonical_url)
                 existing = db.query(MergedListing).filter(
@@ -271,21 +314,6 @@ def process_import(self, import_id: int):
                             setattr(existing, key, value)
                     existing.updated_at = datetime.utcnow()
 
-                    # Update attributes
-                    # Delete old attributes and recreate
-                    db.query(MergedListingAttribute).filter(
-                        MergedListingAttribute.listing_id == existing.id
-                    ).delete()
-
-                    for attr_key, attr_value in extra_attributes.items():
-                        if attr_value and attr_value.strip():
-                            attr = MergedListingAttribute(
-                                listing_id=existing.id,
-                                key=attr_key,
-                                value_text=attr_value.strip()
-                            )
-                            db.add(attr)
-
                     admin_import.updated_count += 1
 
                 else:
@@ -293,16 +321,6 @@ def process_import(self, import_id: int):
                     new_listing = MergedListing(**listing_fields)
                     db.add(new_listing)
                     db.flush()  # Get ID
-
-                    # Add attributes
-                    for attr_key, attr_value in extra_attributes.items():
-                        if attr_value and attr_value.strip():
-                            attr = MergedListingAttribute(
-                                listing_id=new_listing.id,
-                                key=attr_key,
-                                value_text=attr_value.strip()
-                            )
-                            db.add(attr)
 
                     admin_import.created_count += 1
 
@@ -354,6 +372,121 @@ def process_import(self, import_id: int):
             db.commit()
         except Exception:
             pass
+
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True)
+def backfill_extra_fields(self, import_id: Optional[int] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    """
+    Backfill extra fields from raw_payload for listings.
+
+    Can filter by:
+    - import_id: Backfill listings from specific import
+    - start_date/end_date: Backfill listings created in date range
+
+    Args:
+        import_id: Optional AdminImport ID
+        start_date: Optional ISO date string (e.g., "2025-01-01")
+        end_date: Optional ISO date string (e.g., "2025-12-31")
+    """
+    db: Session = SessionLocal()
+
+    try:
+        logger.info(f"Starting backfill: import_id={import_id}, date_range={start_date} to {end_date}")
+
+        # Build query
+        query = db.query(MergedListing).filter(MergedListing.raw_payload.isnot(None))
+
+        if import_id:
+            # Filter by import source_key (assuming import creates listings with consistent source_key)
+            admin_import = db.query(AdminImport).filter(AdminImport.id == import_id).first()
+            if admin_import:
+                query = query.filter(MergedListing.source_key == (admin_import.source_key or "csv_import"))
+
+        if start_date:
+            query = query.filter(MergedListing.created_at >= datetime.fromisoformat(start_date))
+
+        if end_date:
+            query = query.filter(MergedListing.created_at <= datetime.fromisoformat(end_date))
+
+        listings = query.all()
+        logger.info(f"Found {len(listings)} listings to backfill")
+
+        # Load enabled search fields
+        search_fields = db.query(SearchField).filter(SearchField.enabled == True).all()
+
+        # Build mapping: CSV header -> SearchField
+        processed_count = 0
+        updated_count = 0
+
+        for listing in listings:
+            if not listing.raw_payload:
+                continue
+
+            # Process raw_payload through search_fields registry
+            extra_fields = {}
+            raw_row = listing.raw_payload
+
+            for field in search_fields:
+                if field.storage != 'extra':
+                    continue  # Skip core fields (already in core columns)
+
+                # Find matching alias in raw_payload
+                matched_value = None
+                for alias in field.source_aliases:
+                    if alias in raw_row:
+                        matched_value = raw_row[alias]
+                        break
+
+                if not matched_value:
+                    continue
+
+                # Parse value based on data_type
+                parsed_value = None
+                if field.data_type == 'integer':
+                    try:
+                        parsed_value = int(matched_value)
+                    except ValueError:
+                        pass
+                elif field.data_type == 'decimal':
+                    try:
+                        parsed_value = str(Decimal(matched_value))  # Store as string for JSONB
+                    except (ValueError, InvalidOperation):
+                        pass
+                elif field.data_type == 'string':
+                    parsed_value = matched_value
+
+                if parsed_value is not None:
+                    extra_fields[field.key] = parsed_value
+
+            # Update listing.extra
+            if extra_fields:
+                # Merge with existing extra data
+                current_extra = listing.extra or {}
+                current_extra.update(extra_fields)
+                listing.extra = current_extra
+                listing.updated_at = datetime.utcnow()
+                updated_count += 1
+
+            processed_count += 1
+
+            # Batch commit
+            if processed_count % BATCH_SIZE == 0:
+                db.commit()
+                logger.info(f"Backfill progress: {processed_count}/{len(listings)} processed, {updated_count} updated")
+
+        # Final commit
+        db.commit()
+        logger.info(f"Backfill complete: {processed_count} processed, {updated_count} updated")
+
+        return {"processed": processed_count, "updated": updated_count}
+
+    except Exception as e:
+        logger.error(f"Backfill failed: {type(e).__name__}: {e}", exc_info=True)
+        db.rollback()
+        raise
 
     finally:
         db.close()

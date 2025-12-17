@@ -26,3 +26,4 @@ from app.models.merged_listing import MergedListing
 from app.models.merged_listing_attribute import MergedListingAttribute
 from app.models.proxy_endpoint import ProxyEndpoint
 from app.models.admin_import import AdminImport
+from app.models.search_field import SearchField

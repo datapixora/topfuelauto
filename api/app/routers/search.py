@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import get_optional_user
+from app.models.search_field import SearchField
 import logging
 
 from app.providers import get_active_providers
@@ -617,3 +618,33 @@ def get_search_job(job_id: int, db: Session = Depends(get_db)):
             for r in results
         ],
     )
+
+
+
+@router.get("/search/fields")
+def get_search_fields(db: Session = Depends(get_db)):
+    """
+    Get all enabled search fields for public use.
+    
+    Returns fields ordered by ID, including ui_widget and type info for building search forms.
+    """
+    fields = (
+        db.query(SearchField)
+        .filter(SearchField.enabled == True)
+        .order_by(SearchField.id)
+        .all()
+    )
+    
+    return [
+        {
+            "key": field.key,
+            "label": field.label,
+            "data_type": field.data_type,
+            "filterable": field.filterable,
+            "sortable": field.sortable,
+            "visible_in_search": field.visible_in_search,
+            "visible_in_results": field.visible_in_results,
+            "ui_widget": field.ui_widget,
+        }
+        for field in fields
+    ]

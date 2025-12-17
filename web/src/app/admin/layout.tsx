@@ -8,11 +8,12 @@ const links = [
   { href: "/admin/plans", label: "Plans" },
   { href: "/admin/subscriptions", label: "Subscriptions" },
   { href: "/admin/search-analytics", label: "Search Analytics" },
+  { href: "/admin/search/fields", label: "Search Fields" },
   { href: "/admin/providers", label: "Providers" },
   { href: "/admin/proxies", label: "Proxies" },
   { href: "/admin/data/sources", label: "Data Engine" },
   { href: "/admin/imports", label: "Imports" },
-];
+]; 
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (

@@ -1,6 +1,7 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Text, Numeric, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
 
@@ -45,6 +46,10 @@ class MergedListing(Base):
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Dynamic field storage
+    extra = Column(JSONB, nullable=False, default=dict)  # Dynamic fields from search_fields registry
+    raw_payload = Column(JSONB, nullable=True)  # Original CSV row for backfill
 
     # Relationships
     attributes = relationship("MergedListingAttribute", back_populates="listing", cascade="all, delete-orphan")
