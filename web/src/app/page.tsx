@@ -6,6 +6,19 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Button } from "../components/ui/button";
 
+type PublicPlan = {
+  id: number;
+  slug: string;
+  name: string;
+  price_monthly: number | null;
+  currency: string;
+  description: string | null;
+  features: string[];
+  is_featured: boolean;
+  is_active: boolean;
+  sort_order: number;
+};
+
 const valueProps = [
   {
     title: "Search Intelligence",
@@ -36,23 +49,34 @@ const howItWorks = [
   },
 ];
 
-const plans = [
-  {
-    name: "Free",
-    body: "Great for quick checks and VIN decode lookups.",
-    note: "Try searches with no commitment.",
-  },
-  {
-    name: "Pro",
-    body: "For frequent buyers who want deal scoring, alerts, and risk signals.",
-    note: "Built for active bidders.",
-  },
-  {
-    name: "Ultimate",
-    body: "Teams that need coverage expansion, exports, and priority responses.",
-    note: "Best for cross-border workflows.",
-  },
-];
+const normalizeBase = (base: string) => {
+  if (!base) return "";
+  const trimmed = base.replace(/\/+$/, "");
+  if (trimmed.endsWith("/api/v1")) return trimmed;
+  return `${trimmed}/api/v1`;
+};
+
+const currencySymbol = (currency: string) => {
+  const upper = (currency || "").toUpperCase();
+  if (upper === "USD") return "$";
+  if (upper === "EUR") return "€";
+  if (upper === "GBP") return "£";
+  return upper ? `${upper} ` : "";
+};
+
+async function fetchPublicPlans(): Promise<PublicPlan[]> {
+  const apiBase = normalizeBase(process.env.NEXT_PUBLIC_API_BASE_URL || "");
+  const endpoint = apiBase ? `${apiBase}/public/plans` : "/api/v1/public/plans";
+
+  try {
+    const res = await fetch(endpoint, { next: { revalidate: 300 } });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { plans?: PublicPlan[] };
+    return Array.isArray(data?.plans) ? data.plans : [];
+  } catch {
+    return [];
+  }
+}
 
 const faqs = [
   {
@@ -93,7 +117,9 @@ function SkeletonResultCard() {
   );
 }
 
-export default function HomePage() {
+export default async function HomePage() {
+  const plans = await fetchPublicPlans();
+
   return (
     <div className="space-y-12">
       <TopNav />
@@ -226,19 +252,70 @@ export default function HomePage() {
             See Plans
           </Link>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {plans.map((plan) => (
-            <Card key={plan.name} className="border-slate-800 bg-slate-900/70">
-              <CardHeader>
-                <CardTitle>{plan.name}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-slate-300">
-                <p>{plan.body}</p>
-                <p className="text-sm text-slate-400">{plan.note}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {plans.length === 0 ? (
+          <Card className="border-slate-800 bg-slate-900/70">
+            <CardContent className="py-6 text-sm text-slate-300">
+              Plans are being updated right now. Please check back soon or visit the pricing page.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-3">
+            {plans.map((plan) => {
+              const bulletFeatures = Array.isArray(plan.features) ? plan.features : [];
+              const visibleFeatures = bulletFeatures.slice(0, 6);
+              const truncated = bulletFeatures.length > visibleFeatures.length;
+              const symbol = currencySymbol(plan.currency);
+              const priceText =
+                plan.price_monthly == null ? "Custom" : `${symbol}${plan.price_monthly}`;
+              const ctaLabel = plan.slug === "pro" ? "Upgrade to Pro" : "Get Started";
+              const signupHref = `/signup?plan=${encodeURIComponent(plan.slug)}`;
+
+              return (
+                <Card
+                  key={plan.id}
+                  className={`relative border-slate-800 bg-slate-900/70 ${plan.is_featured ? "border-brand-accent/60 bg-slate-900/85 md:scale-[1.02]" : ""}`}
+                >
+                  {plan.is_featured && (
+                    <div className="absolute right-4 top-4 rounded-full bg-brand-gold/20 px-3 py-1 text-xs font-semibold text-brand-gold">
+                      Most Popular
+                    </div>
+                  )}
+                  <CardHeader className="space-y-2">
+                    <CardTitle className="text-xl">{plan.name}</CardTitle>
+                    <div className="flex items-end gap-2">
+                      <div className="text-3xl font-semibold text-slate-50">{priceText}</div>
+                      <div className="pb-1 text-sm text-slate-400">{plan.price_monthly == null ? "" : "/month"}</div>
+                    </div>
+                    {plan.description && <div className="text-sm text-slate-300">{plan.description}</div>}
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <ul className="space-y-2 text-sm text-slate-300">
+                      {visibleFeatures.map((feature) => (
+                        <li key={feature} className="flex gap-2">
+                          <span className="mt-1 h-1.5 w-1.5 flex-none rounded-full bg-brand-accent" />
+                          <span>{feature}</span>
+                        </li>
+                      ))}
+                      {truncated && (
+                        <li className="flex gap-2 text-slate-400">
+                          <span className="mt-1 h-1.5 w-1.5 flex-none rounded-full bg-slate-600" />
+                          <span>and more</span>
+                        </li>
+                      )}
+                    </ul>
+
+                    <Link
+                      href={signupHref}
+                      className={`inline-flex w-full items-center justify-center rounded-md px-5 py-2 text-sm font-semibold transition ${plan.is_featured ? "bg-brand-accent text-slate-950 hover:brightness-110" : "border border-slate-700 text-slate-100 hover:bg-slate-800"}`}
+                    >
+                      {ctaLabel}
+                    </Link>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
         <div className="flex justify-center">
           <Link
             href="/pricing"

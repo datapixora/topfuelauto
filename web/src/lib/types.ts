@@ -116,12 +116,16 @@ export type WebCrawlProviderConfig = {
 export type Plan = {
   id: number;
   key: string;
+  slug?: string;
   name: string;
   description?: string | null;
   price_monthly?: number | null;
-  features?: Record<string, any> | null;
+  features?: string[] | null;
   quotas?: Record<string, any> | null;
   searches_per_day?: number | null;
+  is_active?: boolean;
+  is_featured?: boolean;
+  sort_order?: number;
   stripe_price_id_monthly?: string | null;
   stripe_price_id_yearly?: string | null;
   assist_one_shot_per_day?: number | null;

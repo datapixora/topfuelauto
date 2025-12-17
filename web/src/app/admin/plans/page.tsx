@@ -9,12 +9,15 @@ import JsonViewer from "../../../components/JsonViewer";
 type Plan = {
   id: number;
   key: string;
+  slug: string;
   name: string;
   price_monthly: number | null;
   description?: string | null;
-  features?: Record<string, any> | null;
+  features?: string[] | null;
   quotas?: Record<string, any> | null;
   is_active: boolean;
+  is_featured?: boolean | null;
+  sort_order?: number | null;
   stripe_price_id_monthly?: string | null;
   stripe_price_id_yearly?: string | null;
   searches_per_day?: number | null;
@@ -28,13 +31,6 @@ type Plan = {
   alerts_enabled?: boolean | null;
   alerts_max_active?: number | null;
   alerts_cadence_minutes?: number | null;
-};
-
-const FEATURE_LABELS: Record<string, string> = {
-  vin_history: "VIN history access",
-  priority_support: "Priority support",
-  bulk: "Bulk tools",
-  vin_decode: "VIN decode",
 };
 
 const QUOTA_LABELS: Record<string, string> = {
@@ -63,9 +59,14 @@ export default function AdminPlans() {
   const [success, setSuccess] = useState<string | null>(null);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({
+    slug: "",
     name: "",
+    description: "",
+    sort_order: "0",
+    is_active: true,
+    is_featured: false,
     price: "",
-    features: "{}",
+    features: "",
     quotas: "{}",
     searches_per_day: "",
     quota_reached_message: "",
@@ -115,9 +116,14 @@ export default function AdminPlans() {
   const openEdit = (plan: Plan) => {
     setEditId(plan.id);
     setForm({
+      slug: plan.slug || "",
       name: plan.name || "",
+      description: plan.description || "",
+      sort_order: plan.sort_order == null ? "0" : String(plan.sort_order),
+      is_active: Boolean(plan.is_active),
+      is_featured: Boolean(plan.is_featured),
       price: plan.price_monthly == null ? "" : String(plan.price_monthly),
-      features: JSON.stringify(plan.features || {}, null, 2),
+      features: Array.isArray(plan.features) ? plan.features.join("\n") : "",
       quotas: JSON.stringify(plan.quotas || {}, null, 2),
       searches_per_day: plan.searches_per_day == null ? "" : String(plan.searches_per_day),
       quota_reached_message: plan.quota_reached_message || "",
@@ -144,9 +150,14 @@ export default function AdminPlans() {
     const plan = plans.find((p) => p.id === editId);
     if (!plan) return;
     setForm({
+      slug: plan.slug || "",
       name: plan.name || "",
+      description: plan.description || "",
+      sort_order: plan.sort_order == null ? "0" : String(plan.sort_order),
+      is_active: Boolean(plan.is_active),
+      is_featured: Boolean(plan.is_featured),
       price: plan.price_monthly == null ? "" : String(plan.price_monthly),
-      features: JSON.stringify(plan.features || {}, null, 2),
+      features: Array.isArray(plan.features) ? plan.features.join("\n") : "",
       quotas: JSON.stringify(plan.quotas || {}, null, 2),
       searches_per_day: plan.searches_per_day == null ? "" : String(plan.searches_per_day),
       quota_reached_message: plan.quota_reached_message || "",
@@ -169,15 +180,30 @@ export default function AdminPlans() {
 
   const save = async () => {
     setParseError(null);
-    let featuresObj: Record<string, any> | null = null;
-    let quotasObj: Record<string, any> | null = null;
-    try {
-      featuresObj = form.features ? JSON.parse(form.features) : {};
-      if (featuresObj !== null && typeof featuresObj !== "object") throw new Error();
-    } catch (e: any) {
-      setParseError("Features JSON invalid");
+
+    const slug = form.slug.trim();
+    if (!slug) {
+      setParseError("Slug is required");
       return;
     }
+    if (slug.length > 50) {
+      setParseError("Slug too long (max 50 chars)");
+      return;
+    }
+
+    const sortOrderTrim = form.sort_order.toString().trim();
+    const sortOrderVal = sortOrderTrim === "" ? 0 : Number(sortOrderTrim);
+    if (!Number.isFinite(sortOrderVal) || Number.isNaN(sortOrderVal) || sortOrderVal < 0) {
+      setParseError("Sort order must be a non-negative number");
+      return;
+    }
+
+    const featuresArr = form.features
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    let quotasObj: Record<string, any> | null = null;
     try {
       quotasObj = form.quotas ? JSON.parse(form.quotas) : {};
       if (quotasObj !== null && typeof quotasObj !== "object") throw new Error();
@@ -264,6 +290,7 @@ export default function AdminPlans() {
       return;
     }
     const quotaMsg = form.quota_reached_message.trim();
+    const descriptionTrim = form.description.trim();
 
     setSaving(true);
     setError(null);
@@ -272,9 +299,14 @@ export default function AdminPlans() {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...auth },
         body: JSON.stringify({
+          slug,
           name: form.name,
+          description: descriptionTrim === "" ? null : descriptionTrim,
+          sort_order: sortOrderVal,
+          is_active: !!form.is_active,
+          is_featured: !!form.is_featured,
           price_monthly: priceVal,
-          features: featuresObj,
+          features: featuresArr,
           quotas: quotasObj,
           searches_per_day: searchesVal,
           quota_reached_message: quotaMsg === "" ? null : quotaMsg,
@@ -312,15 +344,10 @@ export default function AdminPlans() {
     return { price: `$${plan.price_monthly}/mo`, badge: null };
   };
 
-  const featureRows = (plan: Plan) => {
-    const feats = plan.features || {};
-    const known = Object.entries(FEATURE_LABELS).map(([key, label]) => ({
-      key,
-      label,
-      enabled: Boolean((feats as any)?.[key]),
-    }));
-    const unknown = Object.entries(feats).filter(([k]) => !FEATURE_LABELS[k]);
-    return { known, unknown };
+  const featureList = (plan: Plan) => {
+    const feats = Array.isArray(plan.features) ? plan.features : [];
+    const visible = feats.slice(0, 6);
+    return { visible, truncated: feats.length > visible.length };
   };
 
   const quotaRows = (plan: Plan) => {
@@ -351,9 +378,9 @@ export default function AdminPlans() {
       <div className="grid gap-4 md:grid-cols-3">
         {plans.map((plan) => {
           const price = priceDisplay(plan);
-          const { known: featureList, unknown: unknownFeatures } = featureRows(plan);
+          const features = featureList(plan);
           const { known: quotaList, unknown: unknownQuotas } = quotaRows(plan);
-          const showAdvanced = unknownFeatures.length > 0 || unknownQuotas.length > 0;
+          const showAdvanced = unknownQuotas.length > 0;
           const isAdvancedOpen = advancedOpen[plan.id] ?? false;
 
           return (
@@ -364,7 +391,21 @@ export default function AdminPlans() {
                     <CardTitle className="text-xl text-slate-50">{plan.name}</CardTitle>
                     {plan.description && <div className="text-sm text-slate-400">{plan.description}</div>}
                   </div>
-                  <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{plan.key}</span>
+                  <div className="flex flex-col items-end gap-1 text-xs">
+                    <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-300">{plan.key}</span>
+                    <span className="font-mono text-slate-500">{plan.slug}</span>
+                    <div className="flex items-center gap-2">
+                      {!plan.is_active && (
+                        <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-red-300">Inactive</span>
+                      )}
+                      {plan.is_featured && (
+                        <span className="rounded-full bg-brand-gold/20 px-2 py-0.5 text-brand-gold">Featured</span>
+                      )}
+                      {plan.sort_order != null && (
+                        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">#{plan.sort_order}</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
                 <div className="text-2xl font-semibold text-emerald-200">{price.price}</div>
                 {price.badge && <div className="text-xs text-slate-400">{price.badge}</div>}
@@ -372,16 +413,19 @@ export default function AdminPlans() {
               <CardContent className="space-y-4 text-sm">
                 <div>
                   <div className="text-xs uppercase tracking-wide text-slate-500">Features</div>
-                  <div className="mt-1 space-y-1">
-                    {featureList.map((item) => (
-                      <div key={item.key} className="flex items-center gap-2">
-                        <span className={`text-lg ${item.enabled ? "text-emerald-400" : "text-slate-500"}`}>
-                          {item.enabled ? "Yes" : "No"}
-                        </span>
-                        <span className="text-slate-200">{item.label}</span>
-                      </div>
-                    ))}
-                  </div>
+                  {features.visible.length === 0 ? (
+                    <div className="mt-1 text-xs text-slate-500">No features listed.</div>
+                  ) : (
+                    <ul className="mt-1 space-y-1 text-slate-200">
+                      {features.visible.map((feature) => (
+                        <li key={feature} className="flex gap-2">
+                          <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-emerald-400/70" />
+                          <span>{feature}</span>
+                        </li>
+                      ))}
+                      {features.truncated && <li className="text-xs text-slate-500">and more</li>}
+                    </ul>
+                  )}
                 </div>
 
                 <div>
@@ -449,12 +493,6 @@ export default function AdminPlans() {
                     </div>
                     {isAdvancedOpen && (
                       <div className="mt-2 space-y-2 text-xs">
-                        {unknownFeatures.length > 0 && (
-                          <div>
-                            <div className="text-slate-400">Other features</div>
-                            <JsonViewer value={Object.fromEntries(unknownFeatures)} />
-                          </div>
-                        )}
                         {unknownQuotas.length > 0 && (
                           <div>
                             <div className="text-slate-400">Other quotas</div>
@@ -496,6 +534,54 @@ export default function AdminPlans() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </label>
+            <label className="block space-y-1">
+              <div className="text-slate-200">Slug</div>
+              <input
+                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 font-mono text-sm"
+                value={form.slug}
+                onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                placeholder="free, pro, ultimate"
+              />
+              <div className="text-xs text-slate-500">Used by marketing pages and links (unique).</div>
+            </label>
+            <label className="block space-y-1">
+              <div className="text-slate-200">Description</div>
+              <textarea
+                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="Short marketing summary shown on the home page."
+              />
+            </label>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="block space-y-1">
+                <div className="text-slate-200">Sort order</div>
+                <input
+                  type="number"
+                  min={0}
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2"
+                  value={form.sort_order}
+                  onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
+                />
+                <div className="text-xs text-slate-500">Lower numbers show first.</div>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-200 md:mt-7">
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                />
+                <span>Active</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-200 md:mt-7">
+                <input
+                  type="checkbox"
+                  checked={form.is_featured}
+                  onChange={(e) => setForm({ ...form, is_featured: e.target.checked })}
+                />
+                <span>Featured (Most Popular)</span>
+              </label>
+            </div>
             <label className="block space-y-1">
               <div className="text-slate-200">Price (monthly)</div>
               <input
@@ -603,13 +689,13 @@ export default function AdminPlans() {
               <div className="text-xs text-slate-500">Determines how often alerts run.</div>
             </label>
             <label className="block space-y-1">
-              <div className="text-slate-200">Features (JSON object)</div>
+              <div className="text-slate-200">Features (one per line)</div>
               <textarea
                 className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 font-mono text-xs min-h-[120px]"
                 value={form.features}
                 onChange={(e) => setForm({ ...form, features: e.target.value })}
               />
-              <div className="text-xs text-slate-500">Example: {'{ "vin_history": true }'}</div>
+              <div className="text-xs text-slate-500">Example: VIN history access</div>
             </label>
             <label className="block space-y-1">
               <div className="text-slate-200">Quotas (JSON object)</div>
