@@ -133,6 +133,7 @@
 
 119. [ ] Admin Sold Results Wizard (frontend): /admin/data/sold-results redesigned with proxy-at-top selector, Test Parse-first flow, "Use this URL for Crawl" handoff, crawl controls (pages/schedule/batch/rpm/concurrency/strategy placeholder), live status blink when running, tracking table shows proxy/exit IP/error, and copy-debug in Test Parse. Uses getProxyOptions + test-parse + create job payload with optional proxy_id.
 120. [ ] Bidfax test-parse hardening: expanded CORS defaults for admin web origins, added test-parse receipt logging, Playwright goto timeout to avoid hangs, and frontend Test Parse uses AbortController (25s) with surfaced errors.
+121. [ ] Render deploy: start command now uses uvicorn with PORT default fallback and log-level info (`cd api && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info`) to avoid "No open ports detected" and ensure web service binds.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
