@@ -289,6 +289,14 @@ def test_parse_url(
 
         # Fetch HTML using specified mode
         provider = BidfaxHtmlProvider()
+        logger.info(
+            "Bidfax fetch started",
+            extra={
+                "url": request.url,
+                "fetch_mode": request.fetch_mode,
+                "proxy_id": request.proxy_id,
+            },
+        )
         fetch_result = provider.fetch_list_page(
             url=request.url,
             proxy_url=proxy_url,
@@ -353,6 +361,9 @@ def test_parse_url(
                 provider="bidfax_html",
                 fetch_mode=request.fetch_mode,
             ),
+            fetch_mode=request.fetch_mode,
+            final_url=fetch_result.final_url,
+            html=fetch_result.html,
         )
 
     except httpx.HTTPStatusError as e:
@@ -388,6 +399,9 @@ def test_parse_url(
                 provider="bidfax_html",
                 fetch_mode=request.fetch_mode,
             ),
+            fetch_mode=request.fetch_mode,
+            final_url=fetch_result.final_url if 'fetch_result' in locals() else request.url,
+            html=fetch_result.html if 'fetch_result' in locals() else "",
         )
 
     except Exception as e:
@@ -418,6 +432,9 @@ def test_parse_url(
                 provider="bidfax_html",
                 fetch_mode=request.fetch_mode,
             ),
+            fetch_mode=request.fetch_mode,
+            final_url=fetch_result.final_url if 'fetch_result' in locals() else request.url,
+            html=fetch_result.html if 'fetch_result' in locals() else "",
         )
 
 

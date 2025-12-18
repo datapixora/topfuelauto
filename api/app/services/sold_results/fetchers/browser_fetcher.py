@@ -51,6 +51,7 @@ class BrowserFetcher:
 
         try:
             with sync_playwright() as p:
+                logger.warning("PLAYWRIGHT BROWSER FETCH EXECUTED")
                 # Parse proxy if provided
                 proxy_config = None
                 if proxy_url:
@@ -113,7 +114,11 @@ class BrowserFetcher:
 
         except PlaywrightError as e:
             latency_ms = int((time.time() - start_time) * 1000)
-            error_msg = f"Playwright error: {str(e)}"
+            msg = str(e)
+            if "executable doesn't exist" in msg or "chromium" in msg.lower():
+                error_msg = "Browser fetch unavailable (Chromium not installed)"
+            else:
+                error_msg = f"Playwright error: {msg}"
             logger.error(f"Browser fetch failed for {url}: {e}", exc_info=True)
 
             return FetchDiagnostics(

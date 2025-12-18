@@ -233,6 +233,14 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
         fetch_mode = tracking.stats.get("fetch_mode", "http") if tracking.stats else "http"
 
         try:
+            logger.info(
+                "Bidfax fetch started",
+                extra={
+                    "url": tracking.target_url,
+                    "fetch_mode": fetch_mode,
+                    "proxy_id": tracking.proxy_id,
+                },
+            )
             # Fetch HTML using specified mode
             logger.info(f"Fetching {tracking.target_url} (proxy_id={tracking.proxy_id}, fetch_mode={fetch_mode})")
             fetch_result = provider.fetch_list_page(

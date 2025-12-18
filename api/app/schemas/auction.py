@@ -161,3 +161,6 @@ class BidfaxTestParseResponse(BaseModel):
     proxy: ProxyInfo
     parse: ParseInfo
     debug: DebugInfo
+    fetch_mode: str = "http"
+    final_url: Optional[str] = None
+    html: Optional[str] = None
