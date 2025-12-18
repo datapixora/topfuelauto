@@ -599,6 +599,7 @@ export async function startImport(importId: number, payload: {
 export async function createBidfaxJob(payload: {
   target_url: string;
   pages: number;
+  fetch_mode?: string;
   make?: string;
   model?: string;
   schedule_enabled: boolean;
@@ -645,6 +646,6 @@ export async function listAuctionSales(params: {
   return apiGet(`/admin/data-engine/bidfax/auction-sales?${qs.toString()}`);
 }
 
-export async function testBidfaxParse(payload: { url: string; proxy_id?: number | null }) {
+export async function testBidfaxParse(payload: { url: string; proxy_id?: number | null; fetch_mode?: string }) {
   return apiPost(`/admin/data-engine/bidfax/test-parse`, payload);
 }

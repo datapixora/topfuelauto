@@ -37,6 +37,7 @@ export default function SoldResultsPage() {
 
   // Test parse state
   const [testUrl, setTestUrl] = useState("");
+  const [testFetchMode, setTestFetchMode] = useState<"http" | "browser">("http");
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
   const [lastTestSuccessUrl, setLastTestSuccessUrl] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export default function SoldResultsPage() {
   // Crawl form state
   const [targetUrl, setTargetUrl] = useState("");
   const [pages, setPages] = useState(1);
+  const [crawlFetchMode, setCrawlFetchMode] = useState<"http" | "browser">("http");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(60);
   const [batchSize, setBatchSize] = useState(2);
@@ -89,6 +91,7 @@ export default function SoldResultsPage() {
       await createBidfaxJob({
         target_url: targetUrl || lastTestSuccessUrl || "",
         pages,
+        fetch_mode: crawlFetchMode,
         schedule_enabled: scheduleEnabled,
         schedule_interval_minutes: scheduleEnabled ? intervalMinutes : undefined,
         proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
@@ -129,6 +132,7 @@ export default function SoldResultsPage() {
       const result = await testBidfaxParse({
         url: testUrl,
         proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
+        fetch_mode: testFetchMode,
       });
       setTestResult(result);
       if (result?.success || result?.ok) {
@@ -245,6 +249,14 @@ export default function SoldResultsPage() {
               value={testUrl}
               onChange={(e) => setTestUrl(e.target.value)}
             />
+            <select
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm min-w-[120px]"
+              value={testFetchMode}
+              onChange={(e) => setTestFetchMode(e.target.value as "http" | "browser")}
+            >
+              <option value="http">HTTP</option>
+              <option value="browser">Browser</option>
+            </select>
             <Button onClick={handleTestParse} disabled={testing || !testUrl}>
               {testing ? "Testing..." : "Test"}
             </Button>
@@ -274,10 +286,11 @@ export default function SoldResultsPage() {
               </div>
 
               <div className="grid md:grid-cols-2 gap-2 text-sm text-slate-200">
-                <div>HTTP: {testResult.status || testResult.status_code || "n/a"}</div>
+                <div>HTTP: {testResult.http?.status || testResult.status || testResult.status_code || "n/a"}</div>
+                <div>Fetch Mode: <span className="capitalize">{testResult.debug?.fetch_mode || testResult.fetch_mode || testFetchMode}</span></div>
                 <div>Proxy: {selectedProxyId ? proxyLabel(Number(selectedProxyId)) : "None"}</div>
-                <div>Exit IP: {testResult.proxy_exit_ip || testResult.exit_ip || "—"}</div>
-                <div>Error: {testResult.error || testResult.message || "—"}</div>
+                <div>Exit IP: {testResult.proxy?.exit_ip || testResult.proxy_exit_ip || testResult.exit_ip || "—"}</div>
+                <div className="col-span-2">Error: {testResult.http?.error || testResult.error || testResult.message || "—"}</div>
               </div>
 
               {Array.isArray(testResult.preview) && testResult.preview.length > 0 && (
@@ -353,16 +366,31 @@ export default function SoldResultsPage() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label>Strategy</Label>
-              <select
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
-                value={strategyId}
-                onChange={(e) => setStrategyId(e.target.value)}
-              >
-                <option value="default">Default Bidfax Strategy</option>
-              </select>
-              <p className="text-xs text-slate-500">TODO: load strategies from API when available.</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Fetch Mode</Label>
+                <select
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+                  value={crawlFetchMode}
+                  onChange={(e) => setCrawlFetchMode(e.target.value as "http" | "browser")}
+                >
+                  <option value="http">HTTP (faster, may be blocked)</option>
+                  <option value="browser">Browser (slower, bypasses blocks)</option>
+                </select>
+                <p className="text-xs text-slate-500">Use Browser mode if HTTP gets 403 errors.</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Strategy</Label>
+                <select
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+                  value={strategyId}
+                  onChange={(e) => setStrategyId(e.target.value)}
+                >
+                  <option value="default">Default Bidfax Strategy</option>
+                </select>
+                <p className="text-xs text-slate-500">TODO: load strategies from API when available.</p>
+              </div>
             </div>
 
             <div className="space-y-2">
