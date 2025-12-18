@@ -399,6 +399,9 @@ export type AuctionTracking = {
   last_http_status?: number | null;
   stats: Record<string, any>;
   next_check_at?: string | null;
+   proxy_id?: number | null;
+   proxy_exit_ip?: string | null;
+   proxy_error?: string | null;
   created_at: string;
   updated_at: string;
 };

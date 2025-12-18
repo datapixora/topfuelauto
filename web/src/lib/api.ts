@@ -603,6 +603,11 @@ export async function createBidfaxJob(payload: {
   model?: string;
   schedule_enabled: boolean;
   schedule_interval_minutes?: number;
+  proxy_id?: number | null;
+  batch_size?: number;
+  rpm?: number;
+  concurrency?: number;
+  strategy_id?: string | null;
 }) {
   return apiPost("/admin/data-engine/bidfax/jobs", payload);
 }
@@ -640,6 +645,6 @@ export async function listAuctionSales(params: {
   return apiGet(`/admin/data-engine/bidfax/auction-sales?${qs.toString()}`);
 }
 
-export async function testBidfaxParse(url: string) {
-  return apiPost(`/admin/data-engine/bidfax/test-parse?url=${encodeURIComponent(url)}`, {});
+export async function testBidfaxParse(payload: { url: string; proxy_id?: number | null }) {
+  return apiPost(`/admin/data-engine/bidfax/test-parse`, payload);
 }
