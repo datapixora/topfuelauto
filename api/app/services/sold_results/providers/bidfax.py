@@ -30,7 +30,7 @@ class BidfaxHtmlProvider:
         self.rate_limit = rate_limit_per_minute
         self.last_request_time = 0.0
 
-    def fetch_list_page(self, url: str, timeout: float = 10.0) -> str:
+    def fetch_list_page(self, url: str, timeout: float = 10.0, proxy_url: Optional[str] = None) -> str:
         """
         Fetch HTML from list page with rate limiting and realistic headers.
 
@@ -61,7 +61,11 @@ class BidfaxHtmlProvider:
             "Upgrade-Insecure-Requests": "1",
         }
 
-        response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+        if proxy_url:
+            with httpx.Client(proxy=proxy_url, timeout=timeout, follow_redirects=True) as client:
+                response = client.get(url, headers=headers)
+        else:
+            response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
         self.last_request_time = time.time()
 
         response.raise_for_status()  # Raise exception for 4xx/5xx status codes

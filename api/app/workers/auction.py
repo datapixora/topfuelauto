@@ -12,6 +12,7 @@ from app.models.auction_tracking import AuctionTracking
 from app.models.auction_sale import AuctionSale
 from app.services.sold_results.providers.bidfax import BidfaxHtmlProvider
 from app.services.sold_results.ingest_service import SoldResultsIngestService
+from app.services import proxy_service
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,8 @@ def enqueue_bidfax_crawl(
     make: str = None,
     model: str = None,
     schedule_enabled: bool = False,
-    schedule_interval_minutes: int = 60
+    schedule_interval_minutes: int = 60,
+    proxy_id: int = None,
 ):
     """
     Create auction_tracking rows for each page and enqueue them.
@@ -65,6 +67,7 @@ def enqueue_bidfax_crawl(
                 existing.next_check_at = datetime.utcnow()
                 existing.make = make
                 existing.model = model
+                existing.proxy_id = proxy_id
                 db.add(existing)
                 logger.info(f"Updated existing tracking for {page_url}")
             else:
@@ -83,7 +86,8 @@ def enqueue_bidfax_crawl(
                     status="pending",
                     next_check_at=next_check,
                     attempts=0,
-                    stats={}
+                    stats={},
+                    proxy_id=proxy_id,
                 )
                 db.add(tracking)
                 created_count += 1
@@ -183,10 +187,46 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
         provider = BidfaxHtmlProvider(rate_limit_per_minute=30)
         ingest_service = SoldResultsIngestService()
 
+        proxy_url = None
+        proxy_exit_ip = None
+        proxy_error = None
+
+        # Resolve proxy if provided
+        if tracking.proxy_id:
+            proxy = proxy_service.get_proxy(db, tracking.proxy_id)
+            if not proxy:
+                tracking.status = "failed"
+                tracking.last_error = f"Proxy {tracking.proxy_id} not found"
+                tracking.proxy_error = tracking.last_error
+                _set_backoff(tracking)
+                db.commit()
+                return {"error": "proxy_not_found"}
+
+            proxy_url = proxy_service.build_proxy_url(proxy)
+            try:
+                check = proxy_service.check_proxy(db, proxy)
+                proxy_exit_ip = check.get("exit_ip")
+                tracking.proxy_exit_ip = proxy_exit_ip
+                if not check.get("ok"):
+                    proxy_error = check.get("error") or "proxy check failed"
+                    tracking.proxy_error = proxy_error
+                    tracking.status = "failed"
+                    _set_backoff(tracking)
+                    db.commit()
+                    return {"error": "proxy_check_failed", "detail": proxy_error}
+            except Exception as e:
+                proxy_error = str(e)
+                tracking.proxy_error = proxy_error
+                tracking.status = "failed"
+                _set_backoff(tracking)
+                db.commit()
+                logger.error(f"Proxy check failed for tracking {tracking.id}: {e}")
+                return {"error": "proxy_check_exception", "detail": proxy_error}
+
         try:
             # Fetch HTML
-            logger.info(f"Fetching {tracking.target_url}")
-            html = provider.fetch_list_page(tracking.target_url)
+            logger.info(f"Fetching {tracking.target_url} (proxy_id={tracking.proxy_id})")
+            html = provider.fetch_list_page(tracking.target_url, proxy_url=proxy_url)
             tracking.last_http_status = 200
 
             # Parse results
@@ -206,6 +246,9 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
                 "skipped": ingest_stats["skipped"],
             }
             tracking.last_error = None
+            tracking.proxy_error = None
+            if proxy_exit_ip:
+                tracking.proxy_exit_ip = proxy_exit_ip
             tracking.next_check_at = None  # Clear scheduled time (or set to next if recurring)
             tracking.last_seen_at = datetime.utcnow()
 
@@ -214,10 +257,28 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
             logger.info(f"Successfully processed tracking {tracking_id}: {ingest_stats}")
             return ingest_stats
 
+        except httpx.ProxyError as e:
+            proxy_error = str(e)
+            tracking.proxy_error = proxy_error
+            tracking.last_error = f"Proxy error: {proxy_error}"
+            tracking.status = "failed"
+            tracking.last_http_status = None
+            _set_backoff(tracking)
+            db.commit()
+
+            logger.error(f"Proxy error for tracking {tracking_id}: {e}")
+            return {
+                "error": "proxy_error",
+                "message": proxy_error,
+            }
+
         except httpx.HTTPStatusError as e:
             # HTTP error (403, 429, 500, etc.)
             tracking.last_http_status = e.response.status_code
-            tracking.last_error = f"HTTP {e.response.status_code}: {str(e)[:200]}"
+            extra_hint = ""
+            if e.response.status_code == 403 and not tracking.proxy_id:
+                extra_hint = " (blocked; assign a proxy)"
+            tracking.last_error = f"HTTP {e.response.status_code}: {str(e)[:200]}{extra_hint}"
 
             # Determine if blocked or temporary error
             if e.response.status_code in [403, 429]:
@@ -240,6 +301,8 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
             # Other errors (parsing, network, database, etc.)
             tracking.status = "failed"
             tracking.last_error = f"{type(e).__name__}: {str(e)[:200]}"
+            if proxy_url:
+                tracking.proxy_error = tracking.last_error
 
             # Set exponential backoff
             _set_backoff(tracking)

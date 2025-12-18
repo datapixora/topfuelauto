@@ -1,5 +1,6 @@
 import pytest
 from app.services.sold_results.providers.bidfax import BidfaxHtmlProvider
+from app.schemas.auction import BidfaxTestParseRequest
 
 # Fixture: Sample Bidfax HTML snippet
 SAMPLE_HTML = """
@@ -171,3 +172,141 @@ def test_parse_list_page_empty_html():
 
     results = provider.parse_list_page("<html><body></body></html>", "https://en.bidfax.info/ford/c-max/")
     assert len(results) == 0
+
+
+def test_fetch_list_page_uses_proxy(monkeypatch):
+    """Ensure fetch_list_page uses httpx Client with proxy when provided."""
+    captured = {}
+
+    class DummyResponse:
+        text = "ok"
+
+        def raise_for_status(self):
+            return None
+
+    class DummyClient:
+        def __init__(self, proxy=None, timeout=None, follow_redirects=None):
+            captured["proxy"] = proxy
+            captured["timeout"] = timeout
+            captured["follow_redirects"] = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, headers=None):
+            captured["url"] = url
+            captured["headers"] = headers
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.sold_results.providers.bidfax.httpx.Client", DummyClient)
+
+    provider = BidfaxHtmlProvider()
+    provider.fetch_list_page("https://example.com", proxy_url="http://proxy.local:3128")
+
+    assert captured["proxy"] == "http://proxy.local:3128"
+    assert captured["url"] == "https://example.com"
+    assert captured["follow_redirects"] is True
+
+
+def test_bidfax_test_parse_request_accepts_proxy():
+    """Schema should accept optional proxy_id."""
+    req = BidfaxTestParseRequest(url="https://en.bidfax.info/ford/c-max/", proxy_id=7)
+    assert req.proxy_id == 7
+
+
+def test_bidfax_test_parse_response_structure():
+    """Test the structured response schema for test-parse endpoint."""
+    from app.schemas.auction import BidfaxTestParseResponse, HttpInfo, ProxyInfo, ParseInfo, DebugInfo
+
+    # Test successful parse response
+    response = BidfaxTestParseResponse(
+        ok=True,
+        http=HttpInfo(
+            status=200,
+            error=None,
+            latency_ms=523,
+        ),
+        proxy=ProxyInfo(
+            used=True,
+            proxy_id=1,
+            proxy_name="SmartProxy US",
+            exit_ip="123.45.67.89",
+            error=None,
+        ),
+        parse=ParseInfo(
+            ok=True,
+            missing=[],
+            sale_status="sold",
+            final_bid=1250000,  # $12,500 in cents
+            vin="1FADP5AU1FL123456",
+            lot_id="67890",
+            sold_at="2025-12-16T00:00:00",
+        ),
+        debug=DebugInfo(
+            url="https://en.bidfax.info/ford/c-max/",
+            provider="bidfax_html",
+        ),
+    )
+
+    assert response.ok is True
+    assert response.http.status == 200
+    assert response.http.latency_ms == 523
+    assert response.proxy.used is True
+    assert response.proxy.proxy_id == 1
+    assert response.proxy.exit_ip == "123.45.67.89"
+    assert response.parse.ok is True
+    assert response.parse.vin == "1FADP5AU1FL123456"
+    assert response.parse.final_bid == 1250000
+    assert response.debug.provider == "bidfax_html"
+
+    # Test failed parse response (403 blocked)
+    failed_response = BidfaxTestParseResponse(
+        ok=False,
+        http=HttpInfo(
+            status=403,
+            error="HTTP 403: Forbidden (blocked; try using a proxy)",
+            latency_ms=234,
+        ),
+        proxy=ProxyInfo(
+            used=False,
+            proxy_id=None,
+            proxy_name=None,
+            exit_ip=None,
+            error=None,
+        ),
+        parse=ParseInfo(
+            ok=False,
+            missing=[],
+        ),
+        debug=DebugInfo(
+            url="https://en.bidfax.info/ford/c-max/",
+            provider="bidfax_html",
+        ),
+    )
+
+    assert failed_response.ok is False
+    assert failed_response.http.status == 403
+    assert "blocked" in failed_response.http.error
+    assert failed_response.proxy.used is False
+    assert failed_response.parse.ok is False
+
+
+def test_bidfax_job_create_accepts_proxy():
+    """Schema should accept optional proxy_id for job creation."""
+    from app.schemas.auction import BidfaxJobCreate
+
+    job = BidfaxJobCreate(
+        target_url="https://en.bidfax.info/ford/c-max/",
+        pages=5,
+        make="Ford",
+        model="C-Max",
+        schedule_enabled=False,
+        proxy_id=3,
+    )
+
+    assert job.proxy_id == 3
+    assert job.target_url == "https://en.bidfax.info/ford/c-max/"
+    assert job.pages == 5

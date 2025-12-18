@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from typing import List, Optional
 from datetime import datetime
+import httpx
 
 from app.core.database import get_db
 from app.core.security import get_current_admin
@@ -13,6 +14,7 @@ from app.models.auction_sale import AuctionSale
 from app.models.auction_tracking import AuctionTracking
 from app.schemas import auction as schemas
 from app.workers import auction as tasks
+from app.services import proxy_service
 import logging
 
 router = APIRouter(prefix="/api/v1/admin/data-engine/bidfax", tags=["admin", "auction"])
@@ -46,6 +48,12 @@ def create_bidfax_job(
         Job creation confirmation with task_id
     """
     try:
+        proxy_id = job.proxy_id
+        if proxy_id:
+            proxy = proxy_service.get_proxy(db, proxy_id)
+            if not proxy:
+                raise HTTPException(status_code=404, detail=f"Proxy {proxy_id} not found")
+
         # Enqueue Celery task
         result = tasks.enqueue_bidfax_crawl.delay(
             target_url=job.target_url,
@@ -54,6 +62,7 @@ def create_bidfax_job(
             model=job.model,
             schedule_enabled=job.schedule_enabled,
             schedule_interval_minutes=job.schedule_interval_minutes,
+            proxy_id=proxy_id,
         )
 
         logger.info(
@@ -222,57 +231,176 @@ def list_auction_sales(
     return sales
 
 
-@router.post("/test-parse", response_model=dict)
+@router.post("/test-parse", response_model=schemas.BidfaxTestParseResponse)
 def test_parse_url(
-    url: str = Query(..., description="Bidfax URL to test parse"),
+    request: schemas.BidfaxTestParseRequest,
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
     """
     Test URL parsing without saving to database.
 
-    Fetches the URL, parses with BidfaxHtmlProvider, and returns first 3 items.
-    Useful for validating selectors and debugging parsing issues.
+    Fetches the URL, parses with BidfaxHtmlProvider, and returns structured diagnostics.
+    Useful for validating selectors and debugging parsing/proxy issues.
 
     Example:
-        POST /test-parse?url=https://en.bidfax.info/ford/c-max/
+        POST /test-parse {"url":"https://en.bidfax.info/ford/c-max/","proxy_id":1}
 
     Returns:
-        Dictionary with:
-        - success: bool
-        - total_found: int
-        - preview: List of first 3 parsed items
-        OR
-        - success: false
-        - error: str
+        BidfaxTestParseResponse with http/proxy/parse/debug sections
     """
-    try:
-        from app.services.sold_results.providers.bidfax import BidfaxHtmlProvider
+    import time
+    from app.services.sold_results.providers.bidfax import BidfaxHtmlProvider
 
-        provider = BidfaxHtmlProvider()
+    start_time = time.time()
+    proxy_used = False
+    proxy_name = None
+    proxy_exit_ip = None
+    proxy_error = None
+    http_status = 0
+    http_error = None
+
+    try:
+        # Resolve proxy if specified
+        if request.proxy_id:
+            proxy = proxy_service.get_proxy(db, request.proxy_id)
+            if not proxy:
+                raise HTTPException(status_code=404, detail="Proxy not found")
+
+            proxy_url = proxy_service.build_proxy_url(proxy)
+            proxy_name = proxy.name
+            proxy_used = True
+
+            # Check proxy health
+            try:
+                check = proxy_service.check_proxy(db, proxy)
+                proxy_exit_ip = check.get("exit_ip")
+                if not check.get("ok"):
+                    proxy_error = check.get("error")
+                    raise HTTPException(status_code=502, detail=f"Proxy check failed: {proxy_error}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                proxy_error = str(e)
+                logger.warning(f"Proxy check failed for test-parse: {e}")
+        else:
+            proxy_url = None
 
         # Fetch HTML
-        html = provider.fetch_list_page(url)
+        provider = BidfaxHtmlProvider()
+        html = provider.fetch_list_page(request.url, proxy_url=proxy_url)
+        http_status = 200
+        latency_ms = int((time.time() - start_time) * 1000)
 
         # Parse results
-        results = provider.parse_list_page(html, url)
+        results = provider.parse_list_page(html, request.url)
 
-        # Return first 3 items for preview
-        preview = results[:3]
+        # Validate first result for completeness
+        missing_fields = []
+        first_result = results[0] if results else {}
+        if first_result:
+            if not first_result.get("vin"):
+                missing_fields.append("vin")
+            if not first_result.get("sold_price"):
+                missing_fields.append("sold_price")
+            if not first_result.get("lot_id"):
+                missing_fields.append("lot_id")
 
-        logger.info(f"Admin {admin.email} tested parse for {url}: {len(results)} found")
+        parse_ok = len(results) > 0 and len(missing_fields) == 0
 
-        return {
-            "success": True,
-            "total_found": len(results),
-            "preview": preview,
-        }
+        logger.info(f"Admin {admin.email} tested parse for {request.url}: {len(results)} found, parse_ok={parse_ok}")
+
+        return schemas.BidfaxTestParseResponse(
+            ok=True,
+            http=schemas.HttpInfo(
+                status=http_status,
+                error=None,
+                latency_ms=latency_ms,
+            ),
+            proxy=schemas.ProxyInfo(
+                used=proxy_used,
+                proxy_id=request.proxy_id,
+                proxy_name=proxy_name,
+                exit_ip=proxy_exit_ip,
+                error=proxy_error,
+            ),
+            parse=schemas.ParseInfo(
+                ok=parse_ok,
+                missing=missing_fields,
+                sale_status=first_result.get("sale_status") if first_result else None,
+                final_bid=first_result.get("sold_price") if first_result else None,
+                vin=first_result.get("vin") if first_result else None,
+                lot_id=first_result.get("lot_id") if first_result else None,
+                sold_at=first_result.get("sold_at").isoformat() if first_result and first_result.get("sold_at") else None,
+            ),
+            debug=schemas.DebugInfo(
+                url=request.url,
+                provider="bidfax_html",
+            ),
+        )
+
+    except httpx.HTTPStatusError as e:
+        http_status = e.response.status_code
+        latency_ms = int((time.time() - start_time) * 1000)
+        http_error = f"HTTP {http_status}: {str(e)}"
+
+        if http_status == 403 and not request.proxy_id:
+            http_error += " (blocked; try using a proxy)"
+
+        logger.error(f"Test parse HTTP error for {request.url}: {e}", exc_info=True)
+
+        return schemas.BidfaxTestParseResponse(
+            ok=False,
+            http=schemas.HttpInfo(
+                status=http_status,
+                error=http_error,
+                latency_ms=latency_ms,
+            ),
+            proxy=schemas.ProxyInfo(
+                used=proxy_used,
+                proxy_id=request.proxy_id,
+                proxy_name=proxy_name,
+                exit_ip=proxy_exit_ip,
+                error=proxy_error,
+            ),
+            parse=schemas.ParseInfo(
+                ok=False,
+                missing=[],
+            ),
+            debug=schemas.DebugInfo(
+                url=request.url,
+                provider="bidfax_html",
+            ),
+        )
+
     except Exception as e:
-        logger.error(f"Test parse failed for {url}: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": f"{type(e).__name__}: {str(e)}",
-        }
+        latency_ms = int((time.time() - start_time) * 1000)
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"Test parse failed for {request.url}: {e}", exc_info=True)
+
+        return schemas.BidfaxTestParseResponse(
+            ok=False,
+            http=schemas.HttpInfo(
+                status=http_status or 0,
+                error=error_msg,
+                latency_ms=latency_ms,
+            ),
+            proxy=schemas.ProxyInfo(
+                used=proxy_used,
+                proxy_id=request.proxy_id,
+                proxy_name=proxy_name,
+                exit_ip=proxy_exit_ip,
+                error=proxy_error or error_msg,
+            ),
+            parse=schemas.ParseInfo(
+                ok=False,
+                missing=[],
+            ),
+            debug=schemas.DebugInfo(
+                url=request.url,
+                provider="bidfax_html",
+            ),
+        )
 
 
 @router.get("/listings/{listing_id}/sold-results", response_model=List[schemas.AuctionSaleResponse])

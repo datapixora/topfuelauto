@@ -1,7 +1,7 @@
 """Auction Tracking model for managing crawler task state."""
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, Index, UniqueConstraint, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -44,6 +44,11 @@ class AuctionTracking(Base):
     # Statistics (stored as JSONB for flexibility)
     stats = Column(JSONB, nullable=False, default=dict)
     # Example: {items_found: 10, items_saved: 8, new_records: 3, updated_records: 5}
+
+    # Proxy diagnostics
+    proxy_id = Column(Integer, ForeignKey("proxies.id", ondelete="SET NULL"), nullable=True, index=True)
+    proxy_exit_ip = Column(String(64), nullable=True)
+    proxy_error = Column(Text, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
