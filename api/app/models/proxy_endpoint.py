@@ -21,5 +21,6 @@ class ProxyEndpoint(Base):
     last_check_status = Column(String(10), nullable=True)  # ok / failed
     last_exit_ip = Column(String(64), nullable=True)
     last_error = Column(Text, nullable=True)
+    unhealthy_until = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -10,6 +10,10 @@ from app.services import crypto_service
 
 SENSITIVE_FIELDS = ["password"]
 
+CONNECT_TIMEOUT = 8.0
+READ_TIMEOUT = 10.0
+OVERALL_TIMEOUT = 20.0
+
 
 def _encrypt_password(password: Optional[str]) -> Optional[str]:
     if not password:
@@ -77,9 +81,10 @@ def update_proxy(db: Session, proxy_id: int, payload: dict) -> Optional[ProxyEnd
 
 def check_proxy(db: Session, proxy: ProxyEndpoint) -> dict:
     proxy_url = build_proxy_url(proxy)
-    result = {"ok": False}
+    result = {"ok": False, "stage": "proxy_check", "error_code": None}
     try:
-        with httpx.Client(proxy=proxy_url, timeout=10.0, verify=False) as client:
+        timeout = httpx.Timeout(OVERALL_TIMEOUT, connect=CONNECT_TIMEOUT, read=READ_TIMEOUT, write=READ_TIMEOUT)
+        with httpx.Client(proxy=proxy_url, timeout=timeout, verify=False) as client:
             start = datetime.utcnow()
             resp = client.get("https://api.ipify.org", params={"format": "json"})
             elapsed = (datetime.utcnow() - start).total_seconds() * 1000
@@ -90,6 +95,17 @@ def check_proxy(db: Session, proxy: ProxyEndpoint) -> dict:
                 "exit_ip": resp.json().get("ip") if resp.headers.get("content-type", "").startswith("application/json") else None,
                 "elapsed_ms": int(elapsed),
             })
+    except httpx.ConnectTimeout:
+        result["error"] = "Proxy connect timeout"
+        result["error_code"] = "PROXY_CONNECT_TIMEOUT"
+    except httpx.ReadTimeout:
+        result["error"] = "Proxy SSL/handshake timeout"
+        result["error_code"] = "PROXY_SSL_HANDSHAKE_TIMEOUT"
+    except httpx.ProxyError as e:
+        msg = str(e)
+        result["error"] = msg
+        if "403" in msg or "auth" in msg.lower():
+            result["error_code"] = "PROXY_AUTH_FAILED"
     except Exception as e:
         result["error"] = str(e)
 
@@ -98,6 +114,8 @@ def check_proxy(db: Session, proxy: ProxyEndpoint) -> dict:
     proxy.last_check_status = "ok" if result.get("ok") else "failed"
     proxy.last_exit_ip = result.get("exit_ip")
     proxy.last_error = result.get("error")
+    if not result.get("ok"):
+        proxy.unhealthy_until = datetime.utcnow() + timedelta(minutes=5)
     db.add(proxy)
     db.commit()
     db.refresh(proxy)
@@ -122,7 +140,11 @@ def build_proxy_url(proxy: ProxyEndpoint) -> str:
 
 
 def select_proxy_for_run(db: Session) -> Optional[ProxyEndpoint]:
-    enabled = db.query(ProxyEndpoint).filter(ProxyEndpoint.is_enabled.is_(True)).all()
+    now = datetime.utcnow()
+    enabled = db.query(ProxyEndpoint).filter(
+        ProxyEndpoint.is_enabled.is_(True),
+        (ProxyEndpoint.unhealthy_until.is_(None) | (ProxyEndpoint.unhealthy_until <= now))
+    ).all()
     if not enabled:
         return None
 

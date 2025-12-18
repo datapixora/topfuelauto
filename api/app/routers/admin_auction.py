@@ -263,29 +263,46 @@ def test_parse_url(
 
     try:
         # Resolve proxy if specified
+        chosen_proxy = None
+        proxy_url = None
+
+        def build_proxy(proxy):
+            return proxy_service.build_proxy_url(proxy)
+
         if request.proxy_id:
             proxy = proxy_service.get_proxy(db, request.proxy_id)
             if not proxy:
                 raise HTTPException(status_code=404, detail="Proxy not found")
+            chosen_proxy = proxy
 
-            proxy_url = proxy_service.build_proxy_url(proxy)
-            proxy_name = proxy.name
+        # If not provided or if chosen is unhealthy, try first healthy enabled proxy
+        if not chosen_proxy:
+            now = datetime.utcnow()
+            healthy = [
+                p for p in proxy_service.list_enabled_proxies(db)
+                if not p.unhealthy_until or p.unhealthy_until <= now
+            ]
+            if healthy:
+                chosen_proxy = healthy[0]
+
+        if chosen_proxy:
+            proxy_url = build_proxy(chosen_proxy)
+            proxy_name = chosen_proxy.name
             proxy_used = True
 
             # Check proxy health
             try:
-                check = proxy_service.check_proxy(db, proxy)
+                check = proxy_service.check_proxy(db, chosen_proxy)
                 proxy_exit_ip = check.get("exit_ip")
                 if not check.get("ok"):
                     proxy_error = check.get("error")
-                    raise HTTPException(status_code=502, detail=f"Proxy check failed: {proxy_error}")
+                    error_code = check.get("error_code")
+                    raise HTTPException(status_code=502, detail=f"Proxy check failed: {proxy_error}", headers={"X-Proxy-Error-Code": error_code or ""})
             except HTTPException:
                 raise
             except Exception as e:
                 proxy_error = str(e)
                 logger.warning(f"Proxy check failed for test-parse: {e}")
-        else:
-            proxy_url = None
 
         logger.info(
             "BIDFAX TEST-PARSE RECEIVED",
@@ -397,6 +414,8 @@ def test_parse_url(
                 proxy_name=proxy_name,
                 exit_ip=proxy_exit_ip,
                 error=proxy_error,
+                error_code=e.headers.get("X-Proxy-Error-Code") if hasattr(e, "headers") and e.headers else None,
+                stage="proxy_check" if proxy_error else None,
             ),
             parse=schemas.ParseInfo(
                 ok=False,
@@ -416,6 +435,9 @@ def test_parse_url(
         latency_ms = int((time.time() - start_time) * 1000)
         error_msg = f"{type(e).__name__}: {str(e)}"
         logger.error(f"Test parse failed for {request.url}: {e}", exc_info=True)
+        proxy_error_code = None
+        if isinstance(e, HTTPException) and e.headers:
+            proxy_error_code = e.headers.get("X-Proxy-Error-Code")
 
         return schemas.BidfaxTestParseResponse(
             ok=False,
@@ -430,6 +452,8 @@ def test_parse_url(
                 proxy_name=proxy_name,
                 exit_ip=proxy_exit_ip,
                 error=proxy_error or error_msg,
+                error_code=proxy_error_code,
+                stage="proxy_check" if proxy_error or proxy_error_code else None,
             ),
             parse=schemas.ParseInfo(
                 ok=False,

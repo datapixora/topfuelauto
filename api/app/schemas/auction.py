@@ -134,6 +134,8 @@ class ProxyInfo(BaseModel):
     proxy_name: Optional[str] = None
     exit_ip: Optional[str] = None
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    stage: Optional[str] = None
 
 
 class ParseInfo(BaseModel):

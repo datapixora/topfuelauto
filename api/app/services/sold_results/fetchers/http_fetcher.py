@@ -64,11 +64,12 @@ class HttpFetcher:
         }
 
         try:
+            timeout_cfg = httpx.Timeout(20.0, connect=8.0, read=10.0, write=10.0)
             if proxy_url:
-                with httpx.Client(proxy=proxy_url, timeout=timeout, follow_redirects=True) as client:
+                with httpx.Client(proxy=proxy_url, timeout=timeout_cfg, follow_redirects=True) as client:
                     response = client.get(url, headers=headers)
             else:
-                response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+                response = httpx.get(url, headers=headers, timeout=timeout_cfg, follow_redirects=True)
 
             self.last_request_time = time.time()
             latency_ms = int((time.time() - start_time) * 1000)
