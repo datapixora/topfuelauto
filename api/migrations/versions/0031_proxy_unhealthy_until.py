@@ -17,8 +17,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("proxies", sa.Column("unhealthy_until", sa.DateTime(), nullable=True))
+    op.execute("SET lock_timeout = '5s'")
+    op.execute("SET statement_timeout = '60s'")
+    op.add_column("proxies", sa.Column("unhealthy_until", sa.DateTime(timezone=True), nullable=True))
 
 
 def downgrade() -> None:
+    op.execute("SET lock_timeout = '5s'")
+    op.execute("SET statement_timeout = '60s'")
     op.drop_column("proxies", "unhealthy_until")

@@ -137,6 +137,7 @@
 122. [ ] Render start command hardened: use bash -lc with separators and preflight checks (echo PORT, python -V, import app.main) then run alembic upgrade and exec uvicorn on ${PORT:-8000} --log-level debug to surface startup errors and satisfy port scan.
 123. [ ] Move alembic migrations to predeploy/release; start command now just uvicorn binding PORT (`cd api && exec python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info`) so Render port scan succeeds.
 124. [ ] Verify Render deployment source: if deployed via dashboard (not blueprint), mirror preDeploy (`cd api && alembic upgrade head`) and start (`cd api && exec python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info`) commands there; ensure start command remains one line (no line wrapping).
+125. [ ] Migration 0031 lock timeout: set lock_timeout 5s and statement_timeout 60s before adding unhealthy_until column to avoid deploy hangs on Postgres locks.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
