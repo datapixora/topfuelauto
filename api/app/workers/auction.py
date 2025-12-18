@@ -26,6 +26,7 @@ def enqueue_bidfax_crawl(
     schedule_enabled: bool = False,
     schedule_interval_minutes: int = 60,
     proxy_id: int = None,
+    fetch_mode: str = "http",
 ):
     """
     Create auction_tracking rows for each page and enqueue them.
@@ -39,6 +40,8 @@ def enqueue_bidfax_crawl(
         model: Optional vehicle model metadata
         schedule_enabled: If True, set next_check_at for recurring crawls
         schedule_interval_minutes: Interval between scheduled runs
+        proxy_id: Optional proxy ID from proxy pool
+        fetch_mode: Fetch mode ('http' or 'browser')
 
     Returns:
         Dictionary with created count and configuration
@@ -68,6 +71,9 @@ def enqueue_bidfax_crawl(
                 existing.make = make
                 existing.model = model
                 existing.proxy_id = proxy_id
+                # Preserve or update fetch_mode in stats
+                existing.stats = existing.stats or {}
+                existing.stats["fetch_mode"] = fetch_mode
                 db.add(existing)
                 logger.info(f"Updated existing tracking for {page_url}")
             else:
@@ -86,7 +92,7 @@ def enqueue_bidfax_crawl(
                     status="pending",
                     next_check_at=next_check,
                     attempts=0,
-                    stats={},
+                    stats={"fetch_mode": fetch_mode},
                     proxy_id=proxy_id,
                 )
                 db.add(tracking)
@@ -223,14 +229,29 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
                 logger.error(f"Proxy check failed for tracking {tracking.id}: {e}")
                 return {"error": "proxy_check_exception", "detail": proxy_error}
 
+        # Get fetch_mode from tracking.stats (default to 'http')
+        fetch_mode = tracking.stats.get("fetch_mode", "http") if tracking.stats else "http"
+
         try:
-            # Fetch HTML
-            logger.info(f"Fetching {tracking.target_url} (proxy_id={tracking.proxy_id})")
-            html = provider.fetch_list_page(tracking.target_url, proxy_url=proxy_url)
-            tracking.last_http_status = 200
+            # Fetch HTML using specified mode
+            logger.info(f"Fetching {tracking.target_url} (proxy_id={tracking.proxy_id}, fetch_mode={fetch_mode})")
+            fetch_result = provider.fetch_list_page(
+                url=tracking.target_url,
+                proxy_url=proxy_url,
+                fetch_mode=fetch_mode,
+            )
+
+            # Update diagnostics from fetch result
+            tracking.last_http_status = fetch_result.status_code
+            if fetch_result.proxy_exit_ip:
+                proxy_exit_ip = fetch_result.proxy_exit_ip
+
+            # Check if fetch failed
+            if fetch_result.error or not fetch_result.html:
+                raise Exception(fetch_result.error or "Fetch returned empty HTML")
 
             # Parse results
-            results = provider.parse_list_page(html, tracking.target_url)
+            results = provider.parse_list_page(fetch_result.html, tracking.target_url)
             logger.info(f"Parsed {len(results)} results from {tracking.target_url}")
 
             # Ingest to database
@@ -244,6 +265,7 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
                 "new_records": ingest_stats["inserted"],
                 "updated_records": ingest_stats["updated"],
                 "skipped": ingest_stats["skipped"],
+                "fetch_mode": fetch_mode,  # Preserve fetch_mode
             }
             tracking.last_error = None
             tracking.proxy_error = None

@@ -1,13 +1,13 @@
-"""Bidfax HTML scraping provider with rate limiting."""
+"""Bidfax HTML scraping provider with multiple fetch modes."""
 
-import httpx
 import re
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from bs4 import BeautifulSoup
-import time
-import random
+
+from ..fetch_diagnostics import FetchDiagnostics
+from ..fetchers import HttpFetcher, BrowserFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -17,59 +17,47 @@ class BidfaxHtmlProvider:
     Bidfax HTML scraping provider.
 
     Fetches and parses Bidfax sold results pages using BeautifulSoup.
-    Includes rate limiting, realistic headers, and robust error handling.
+    Supports both HTTP and browser-based fetching for flexibility.
     """
 
     def __init__(self, rate_limit_per_minute: int = 30):
         """
-        Initialize provider with rate limiting.
+        Initialize provider with fetchers.
 
         Args:
-            rate_limit_per_minute: Maximum requests per minute (default: 30)
+            rate_limit_per_minute: Maximum requests per minute for HTTP mode (default: 30)
         """
-        self.rate_limit = rate_limit_per_minute
-        self.last_request_time = 0.0
+        self.http_fetcher = HttpFetcher(rate_limit_per_minute=rate_limit_per_minute)
+        self.browser_fetcher = BrowserFetcher(headless=True, timeout_ms=30000)
 
-    def fetch_list_page(self, url: str, timeout: float = 10.0, proxy_url: Optional[str] = None) -> str:
+    def fetch_list_page(
+        self,
+        url: str,
+        proxy_url: Optional[str] = None,
+        fetch_mode: str = "http",
+        timeout: float = 10.0,
+    ) -> FetchDiagnostics:
         """
-        Fetch HTML from list page with rate limiting and realistic headers.
+        Fetch HTML from list page using specified fetch mode.
 
         Args:
             url: Bidfax list page URL
-            timeout: Request timeout in seconds
+            proxy_url: Optional proxy URL
+            fetch_mode: Fetch mode to use ("http" or "browser")
+            timeout: Request timeout in seconds (HTTP mode only)
 
         Returns:
-            HTML content as string
+            FetchDiagnostics with HTML and metadata
 
         Raises:
-            httpx.HTTPStatusError: If HTTP request fails
+            ValueError: If fetch_mode is invalid
         """
-        # Rate limiting with jitter to avoid detection
-        min_interval = 60.0 / self.rate_limit
-        elapsed = time.time() - self.last_request_time
-        if elapsed < min_interval:
-            sleep_time = min_interval - elapsed + random.uniform(0, 0.5)
-            time.sleep(sleep_time)
-
-        # Realistic browser headers
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-        }
-
-        if proxy_url:
-            with httpx.Client(proxy=proxy_url, timeout=timeout, follow_redirects=True) as client:
-                response = client.get(url, headers=headers)
+        if fetch_mode == "http":
+            return self.http_fetcher.fetch(url, proxy_url=proxy_url, timeout=timeout)
+        elif fetch_mode == "browser":
+            return self.browser_fetcher.fetch(url, proxy_url=proxy_url)
         else:
-            response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
-        self.last_request_time = time.time()
-
-        response.raise_for_status()  # Raise exception for 4xx/5xx status codes
-        return response.text
+            raise ValueError(f"Invalid fetch_mode: {fetch_mode}. Must be 'http' or 'browser'.")
 
     def parse_list_page(self, html: str, url: str) -> List[Dict[str, Any]]:
         """

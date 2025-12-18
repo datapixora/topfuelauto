@@ -101,12 +101,14 @@ class BidfaxJobCreate(BaseModel):
     schedule_enabled: bool = Field(default=False, description="Enable recurring scheduled crawls")
     schedule_interval_minutes: Optional[int] = Field(default=60, ge=10, description="Interval between scheduled crawls (min 10)")
     proxy_id: Optional[int] = Field(None, description="Optional proxy from proxy pool")
+    fetch_mode: str = Field(default="http", description="Fetch mode: 'http' or 'browser'")
 
 
 class BidfaxTestParseRequest(BaseModel):
     """Schema for test-parse endpoint."""
     url: str = Field(..., description="Bidfax URL to test parse")
     proxy_id: Optional[int] = Field(None, description="Optional proxy from proxy pool")
+    fetch_mode: str = Field(default="http", description="Fetch mode: 'http' or 'browser'")
 
 
 class TrackingRetryRequest(BaseModel):
@@ -149,6 +151,7 @@ class DebugInfo(BaseModel):
     """Debug metadata."""
     url: str
     provider: str = "bidfax_html"
+    fetch_mode: str = "http"
 
 
 class BidfaxTestParseResponse(BaseModel):

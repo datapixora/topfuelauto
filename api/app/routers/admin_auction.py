@@ -63,6 +63,7 @@ def create_bidfax_job(
             schedule_enabled=job.schedule_enabled,
             schedule_interval_minutes=job.schedule_interval_minutes,
             proxy_id=proxy_id,
+            fetch_mode=job.fetch_mode,
         )
 
         logger.info(
@@ -286,14 +287,28 @@ def test_parse_url(
         else:
             proxy_url = None
 
-        # Fetch HTML
+        # Fetch HTML using specified mode
         provider = BidfaxHtmlProvider()
-        html = provider.fetch_list_page(request.url, proxy_url=proxy_url)
-        http_status = 200
-        latency_ms = int((time.time() - start_time) * 1000)
+        fetch_result = provider.fetch_list_page(
+            url=request.url,
+            proxy_url=proxy_url,
+            fetch_mode=request.fetch_mode,
+        )
+
+        # Update diagnostics from fetch result
+        http_status = fetch_result.status_code
+        latency_ms = fetch_result.latency_ms
+        if fetch_result.error:
+            http_error = fetch_result.error
+        if fetch_result.proxy_exit_ip:
+            proxy_exit_ip = fetch_result.proxy_exit_ip
+
+        # Check if fetch failed
+        if fetch_result.error or not fetch_result.html:
+            raise Exception(fetch_result.error or "Fetch returned empty HTML")
 
         # Parse results
-        results = provider.parse_list_page(html, request.url)
+        results = provider.parse_list_page(fetch_result.html, request.url)
 
         # Validate first result for completeness
         missing_fields = []
@@ -336,6 +351,7 @@ def test_parse_url(
             debug=schemas.DebugInfo(
                 url=request.url,
                 provider="bidfax_html",
+                fetch_mode=request.fetch_mode,
             ),
         )
 
@@ -370,6 +386,7 @@ def test_parse_url(
             debug=schemas.DebugInfo(
                 url=request.url,
                 provider="bidfax_html",
+                fetch_mode=request.fetch_mode,
             ),
         )
 
@@ -399,6 +416,7 @@ def test_parse_url(
             debug=schemas.DebugInfo(
                 url=request.url,
                 provider="bidfax_html",
+                fetch_mode=request.fetch_mode,
             ),
         )
 

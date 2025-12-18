@@ -1,5 +1,9 @@
 import pytest
+from unittest.mock import Mock, MagicMock, patch
 from app.services.sold_results.providers.bidfax import BidfaxHtmlProvider
+from app.services.sold_results.fetchers.browser_fetcher import BrowserFetcher
+from app.services.sold_results.fetchers.http_fetcher import HttpFetcher
+from app.services.sold_results.fetch_diagnostics import FetchDiagnostics
 from app.schemas.auction import BidfaxTestParseRequest
 
 # Fixture: Sample Bidfax HTML snippet
@@ -310,3 +314,243 @@ def test_bidfax_job_create_accepts_proxy():
     assert job.proxy_id == 3
     assert job.target_url == "https://en.bidfax.info/ford/c-max/"
     assert job.pages == 5
+
+
+# ============================================================================
+# Browser Fetcher Tests
+# ============================================================================
+
+def test_browser_fetcher_initialization():
+    """Test BrowserFetcher initialization with default parameters."""
+    fetcher = BrowserFetcher()
+    assert fetcher.headless is True
+    assert fetcher.timeout_ms == 30000
+
+    fetcher_custom = BrowserFetcher(headless=False, timeout_ms=60000)
+    assert fetcher_custom.headless is False
+    assert fetcher_custom.timeout_ms == 60000
+
+
+def test_browser_fetcher_parse_proxy_url():
+    """Test proxy URL parsing into Playwright format."""
+    fetcher = BrowserFetcher()
+
+    # Test proxy with auth
+    result = fetcher._parse_proxy_url("http://user:pass@proxy.local:3128")
+    assert result["server"] == "http://proxy.local:3128"
+    assert result["username"] == "user"
+    assert result["password"] == "pass"
+
+    # Test proxy without auth
+    result_no_auth = fetcher._parse_proxy_url("http://proxy.local:8080")
+    assert result_no_auth["server"] == "http://proxy.local:8080"
+    assert "username" not in result_no_auth
+    assert "password" not in result_no_auth
+
+    # Test HTTPS proxy
+    result_https = fetcher._parse_proxy_url("https://admin:secret@secure.proxy:443")
+    assert result_https["server"] == "https://secure.proxy:443"
+    assert result_https["username"] == "admin"
+    assert result_https["password"] == "secret"
+
+
+def test_browser_fetcher_fetch_success(monkeypatch):
+    """Test successful browser fetch with mocked Playwright."""
+    # Mock Playwright components
+    mock_response = Mock()
+    mock_response.status = 200
+
+    mock_page = Mock()
+    mock_page.goto.return_value = mock_response
+    mock_page.content.return_value = "<html><body>Test Content</body></html>"
+    mock_page.url = "https://en.bidfax.info/ford/c-max/"
+
+    mock_context = Mock()
+    mock_context.new_page.return_value = mock_page
+
+    mock_browser = Mock()
+    mock_browser.new_context.return_value = mock_context
+    mock_browser.version = "120.0.6099.0"
+
+    mock_chromium = Mock()
+    mock_chromium.launch.return_value = mock_browser
+
+    mock_playwright = MagicMock()
+    mock_playwright.__enter__.return_value.chromium = mock_chromium
+
+    # Patch sync_playwright
+    with patch('app.services.sold_results.fetchers.browser_fetcher.sync_playwright', return_value=mock_playwright):
+        fetcher = BrowserFetcher()
+        result = fetcher.fetch("https://en.bidfax.info/ford/c-max/")
+
+    # Assertions
+    assert isinstance(result, FetchDiagnostics)
+    assert result.html == "<html><body>Test Content</body></html>"
+    assert result.status_code == 200
+    assert result.fetch_mode == "browser"
+    assert result.final_url == "https://en.bidfax.info/ford/c-max/"
+    assert result.browser_version == "120.0.6099.0"
+    assert result.latency_ms >= 0
+    assert result.error is None
+
+
+def test_browser_fetcher_fetch_with_proxy(monkeypatch):
+    """Test browser fetch with proxy configuration."""
+    mock_response = Mock()
+    mock_response.status = 200
+
+    mock_page = Mock()
+    mock_page.goto.return_value = mock_response
+    mock_page.content.return_value = "<html>Content</html>"
+    mock_page.url = "https://example.com"
+    # Mock exit IP detection
+    mock_page.text_content.return_value = "123.45.67.89"
+
+    mock_context = Mock()
+    mock_context.new_page.return_value = mock_page
+
+    mock_browser = Mock()
+    mock_browser.new_context.return_value = mock_context
+    mock_browser.version = "120.0.0"
+
+    captured_proxy_config = {}
+
+    def capture_context(*args, **kwargs):
+        if 'proxy' in kwargs:
+            captured_proxy_config.update(kwargs['proxy'])
+        return mock_context
+
+    mock_browser.new_context.side_effect = capture_context
+
+    mock_chromium = Mock()
+    mock_chromium.launch.return_value = mock_browser
+
+    mock_playwright = MagicMock()
+    mock_playwright.__enter__.return_value.chromium = mock_chromium
+
+    with patch('app.services.sold_results.fetchers.browser_fetcher.sync_playwright', return_value=mock_playwright):
+        fetcher = BrowserFetcher()
+        result = fetcher.fetch("https://example.com", proxy_url="http://user:pass@proxy.local:3128")
+
+    # Verify proxy was configured
+    assert captured_proxy_config["server"] == "http://proxy.local:3128"
+    assert captured_proxy_config["username"] == "user"
+    assert captured_proxy_config["password"] == "pass"
+
+    # Verify result
+    assert result.status_code == 200
+    assert result.proxy_exit_ip == "123.45.67.89"
+
+
+def test_browser_fetcher_handles_navigation_error(monkeypatch):
+    """Test browser fetcher handles navigation errors gracefully."""
+    mock_page = Mock()
+    mock_page.goto.side_effect = Exception("Navigation timeout")
+
+    mock_context = Mock()
+    mock_context.new_page.return_value = mock_page
+
+    mock_browser = Mock()
+    mock_browser.new_context.return_value = mock_context
+    mock_browser.version = "120.0.0"
+
+    mock_chromium = Mock()
+    mock_chromium.launch.return_value = mock_browser
+
+    mock_playwright = MagicMock()
+    mock_playwright.__enter__.return_value.chromium = mock_chromium
+
+    with patch('app.services.sold_results.fetchers.browser_fetcher.sync_playwright', return_value=mock_playwright):
+        fetcher = BrowserFetcher()
+        result = fetcher.fetch("https://example.com")
+
+    # Should return FetchDiagnostics with error
+    assert isinstance(result, FetchDiagnostics)
+    assert result.html == ""
+    assert result.status_code == 0
+    assert result.error is not None
+    assert "Navigation timeout" in result.error
+
+
+def test_http_fetcher_returns_fetch_diagnostics():
+    """Test HttpFetcher returns FetchDiagnostics structure."""
+    # This is a minimal test to ensure HttpFetcher interface matches BrowserFetcher
+    fetcher = HttpFetcher(rate_limit_per_minute=60)
+    # We won't actually make HTTP requests, just verify the class exists and has the right interface
+    assert hasattr(fetcher, 'fetch')
+    assert fetcher.rate_limit == 60
+
+
+def test_bidfax_provider_fetch_mode_selection():
+    """Test BidfaxHtmlProvider selects correct fetcher based on fetch_mode."""
+    provider = BidfaxHtmlProvider()
+
+    # Verify both fetchers are initialized
+    assert isinstance(provider.http_fetcher, HttpFetcher)
+    assert isinstance(provider.browser_fetcher, BrowserFetcher)
+
+    # Test invalid fetch_mode raises ValueError
+    with pytest.raises(ValueError, match="Invalid fetch_mode"):
+        provider.fetch_list_page("https://example.com", fetch_mode="invalid_mode")
+
+
+def test_fetch_diagnostics_structure():
+    """Test FetchDiagnostics dataclass structure."""
+    diag = FetchDiagnostics(
+        html="<html>Test</html>",
+        status_code=200,
+        latency_ms=500,
+        fetch_mode="http",
+        final_url="https://example.com",
+        error=None,
+        proxy_exit_ip="123.45.67.89",
+        browser_version="120.0.0"
+    )
+
+    assert diag.html == "<html>Test</html>"
+    assert diag.status_code == 200
+    assert diag.latency_ms == 500
+    assert diag.fetch_mode == "http"
+    assert diag.final_url == "https://example.com"
+    assert diag.proxy_exit_ip == "123.45.67.89"
+    assert diag.browser_version == "120.0.0"
+
+
+def test_fetch_mode_defaults():
+    """Test fetch_mode defaults in schemas."""
+    from app.schemas.auction import BidfaxJobCreate, BidfaxTestParseRequest, DebugInfo
+
+    # BidfaxJobCreate should default to "http"
+    job = BidfaxJobCreate(
+        target_url="https://en.bidfax.info/ford/c-max/",
+        pages=1
+    )
+    assert job.fetch_mode == "http"
+
+    # BidfaxTestParseRequest should default to "http"
+    test_req = BidfaxTestParseRequest(url="https://en.bidfax.info/ford/c-max/")
+    assert test_req.fetch_mode == "http"
+
+    # DebugInfo should default to "http"
+    debug = DebugInfo(url="https://example.com")
+    assert debug.fetch_mode == "http"
+
+
+def test_fetch_mode_browser_option():
+    """Test fetch_mode can be set to 'browser'."""
+    from app.schemas.auction import BidfaxJobCreate, BidfaxTestParseRequest
+
+    # BidfaxJobCreate with browser mode
+    job = BidfaxJobCreate(
+        target_url="https://en.bidfax.info/ford/c-max/",
+        pages=1,
+        fetch_mode="browser"
+    )
+    assert job.fetch_mode == "browser"
+
+    # BidfaxTestParseRequest with browser mode
+    test_req = BidfaxTestParseRequest(
+        url="https://en.bidfax.info/ford/c-max/",
+        fetch_mode="browser"
+    )
+    assert test_req.fetch_mode == "browser"
