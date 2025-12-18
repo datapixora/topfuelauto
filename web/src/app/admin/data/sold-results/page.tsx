@@ -264,9 +264,9 @@ export default function SoldResultsPage() {
                   </span>
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="ghost" onClick={copyDebug}>Copy debug</Button>
+                  <Button variant="ghost" className="h-8 px-2 text-sm" onClick={copyDebug}>Copy debug</Button>
                   {testResult.success || testResult.ok ? (
-                    <Button size="sm" onClick={() => { setTargetUrl(testUrl); setLastTestSuccessUrl(testUrl); }}>
+                    <Button className="h-8 px-2 text-sm" onClick={() => { setTargetUrl(testUrl); setLastTestSuccessUrl(testUrl); }}>
                       Use this URL for Crawl
                     </Button>
                   ) : null}
