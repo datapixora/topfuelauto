@@ -37,6 +37,8 @@ services:
         value: https://topfuelauto.com,https://www.topfuelauto.com,https://app.topfuelauto.com,http://localhost:3000
       - key: PYTHON_VERSION
         value: 3.12.8
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /tmp/pw-browsers
 
   - type: worker
     name: topfuelauto-worker
@@ -67,6 +69,8 @@ services:
         generateValue: true
       - key: PYTHON_VERSION
         value: 3.12.8
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /tmp/pw-browsers
 
   - type: worker
     name: topfuelauto-beat
@@ -97,6 +101,8 @@ services:
         generateValue: true
       - key: PYTHON_VERSION
         value: 3.12.8
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /tmp/pw-browsers
 
   - type: web
     name: topfuelauto-web
