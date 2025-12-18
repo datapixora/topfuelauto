@@ -362,3 +362,43 @@ export type ImportStartRequest = {
   source_key?: string | null;
   skip_duplicates?: boolean;
 };
+
+// ============================================================================
+// Auction Sales / Sold Results Types
+// ============================================================================
+
+export type AuctionSale = {
+  id: number;
+  vin?: string | null;
+  lot_id?: string | null;
+  auction_source: string;  // copart/iaai/unknown
+  sale_status: string;  // sold/on_approval/no_sale/unknown
+  sold_price?: number | null;  // Price in cents
+  currency: string;
+  sold_at?: string | null;
+  location?: string | null;
+  odometer_miles?: number | null;
+  damage?: string | null;
+  condition?: string | null;
+  attributes: Record<string, any>;
+  source_url: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AuctionTracking = {
+  id: number;
+  target_url: string;
+  target_type: string;  // list_page / detail_page
+  make?: string | null;
+  model?: string | null;
+  page_num?: number | null;
+  status: string;  // pending/running/done/failed
+  attempts: number;
+  last_error?: string | null;
+  last_http_status?: number | null;
+  stats: Record<string, any>;
+  next_check_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};

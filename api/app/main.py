@@ -14,6 +14,7 @@ from app.routers.admin_data import router as admin_data_router
 from app.routers.admin_proxies import router as admin_proxies_router
 from app.routers.admin_imports import router as admin_imports_router
 from app.routers.admin_search_fields import router as admin_search_fields_router
+from app.routers.admin_auction import router as admin_auction_router
 from app.routers.public_plans import router as public_plans_router
 from app.routers.meta import router as meta_router
 
@@ -103,6 +104,7 @@ app.include_router(admin_data_router)
 app.include_router(admin_proxies_router)
 app.include_router(admin_imports_router)
 app.include_router(admin_search_fields_router)
+app.include_router(admin_auction_router)
 app.include_router(billing.router)
 app.include_router(assist.router)
 app.include_router(alerts.router)

@@ -591,3 +591,55 @@ export async function startImport(importId: number, payload: {
 }) {
   return apiPost(`/admin/imports/${importId}/start`, payload);
 }
+
+// ============================================================================
+// Auction Sales / Sold Results (Bidfax)
+// ============================================================================
+
+export async function createBidfaxJob(payload: {
+  target_url: string;
+  pages: number;
+  make?: string;
+  model?: string;
+  schedule_enabled: boolean;
+  schedule_interval_minutes?: number;
+}) {
+  return apiPost("/admin/data-engine/bidfax/jobs", payload);
+}
+
+export async function listAuctionTracking(params: {
+  status?: string;
+  make?: string;
+  model?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) qs.append(k, String(v));
+  });
+  return apiGet(`/admin/data-engine/bidfax/tracking?${qs.toString()}`);
+}
+
+export async function retryAuctionTracking(trackingId: number, resetAttempts: boolean = false) {
+  return apiPost(`/admin/data-engine/bidfax/tracking/${trackingId}/retry`, { reset_attempts: resetAttempts });
+}
+
+export async function listAuctionSales(params: {
+  vin?: string;
+  auction_source?: string;
+  start_date?: string;
+  end_date?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) qs.append(k, String(v));
+  });
+  return apiGet(`/admin/data-engine/bidfax/auction-sales?${qs.toString()}`);
+}
+
+export async function testBidfaxParse(url: string) {
+  return apiPost(`/admin/data-engine/bidfax/test-parse?url=${encodeURIComponent(url)}`, {});
+}

@@ -34,6 +34,11 @@ celery_app.conf.beat_schedule = {
         "schedule": 180,  # Check every 3 minutes
         "args": (),
     },
+    "auction-tracking-batch": {
+        "task": "app.workers.auction.run_tracking_batch",
+        "schedule": 300,  # Check every 5 minutes
+        "args": (20,),  # Process up to 20 pending trackings per batch
+    },
 }
 
 celery_app.conf.timezone = "UTC"
@@ -44,3 +49,4 @@ from app.workers import data_engine  # noqa: F401, E402
 from app.workers import assist  # noqa: F401, E402
 from app.workers import alerts  # noqa: F401, E402
 from app.workers import import_processor  # noqa: F401, E402
+from app.workers import auction  # noqa: F401, E402

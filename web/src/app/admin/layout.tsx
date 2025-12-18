@@ -12,6 +12,7 @@ const links = [
   { href: "/admin/providers", label: "Providers" },
   { href: "/admin/proxies", label: "Proxies" },
   { href: "/admin/data/sources", label: "Data Engine" },
+  { href: "/admin/data/sold-results", label: "Sold Results" },
   { href: "/admin/imports", label: "Imports" },
 ]; 
 
