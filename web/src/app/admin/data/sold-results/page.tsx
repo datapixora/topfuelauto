@@ -10,8 +10,19 @@ import {
   listAuctionTracking,
   retryAuctionTracking,
   testBidfaxParse,
+  getProxyOptions,
 } from "../../../../lib/api";
 import type { AuctionTracking } from "../../../../lib/types";
+
+type ProxyOption = {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  scheme: string;
+  last_check_status?: string | null;
+  last_exit_ip?: string | null;
+};
 
 export default function SoldResultsPage() {
   const [trackings, setTrackings] = useState<AuctionTracking[]>([]);
@@ -19,19 +30,30 @@ export default function SoldResultsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Form state
-  const [targetUrl, setTargetUrl] = useState("");
-  const [pages, setPages] = useState(1);
-  const [make, setMake] = useState("");
-  const [model, setModel] = useState("");
-  const [scheduleEnabled, setScheduleEnabled] = useState(false);
-  const [intervalMinutes, setIntervalMinutes] = useState(60);
-  const [creating, setCreating] = useState(false);
+  // Proxy
+  const [proxyOptions, setProxyOptions] = useState<ProxyOption[]>([]);
+  const [selectedProxyId, setSelectedProxyId] = useState<number | "">("");
+  const [proxyWarningDismissed, setProxyWarningDismissed] = useState(false);
 
   // Test parse state
   const [testUrl, setTestUrl] = useState("");
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
+  const [lastTestSuccessUrl, setLastTestSuccessUrl] = useState<string | null>(null);
+
+  // Crawl form state
+  const [targetUrl, setTargetUrl] = useState("");
+  const [pages, setPages] = useState(1);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [intervalMinutes, setIntervalMinutes] = useState(60);
+  const [batchSize, setBatchSize] = useState(2);
+  const [rpm, setRpm] = useState(30);
+  const [concurrency, setConcurrency] = useState(1);
+  const [strategyId, setStrategyId] = useState("default");
+  const [creating, setCreating] = useState(false);
+
+  // Retry button state
+  const [retryingId, setRetryingId] = useState<number | null>(null);
 
   const loadTrackings = async () => {
     setLoading(true);
@@ -46,8 +68,18 @@ export default function SoldResultsPage() {
     }
   };
 
+  const loadProxyOptions = async () => {
+    try {
+      const options = await getProxyOptions();
+      setProxyOptions(options || []);
+    } catch (e: any) {
+      console.error("Failed to load proxy options", e);
+    }
+  };
+
   useEffect(() => {
     void loadTrackings();
+    void loadProxyOptions();
   }, []);
 
   const handleCreateJob = async (e: React.FormEvent) => {
@@ -55,21 +87,21 @@ export default function SoldResultsPage() {
     setCreating(true);
     try {
       await createBidfaxJob({
-        target_url: targetUrl,
+        target_url: targetUrl || lastTestSuccessUrl || "",
         pages,
-        make: make || undefined,
-        model: model || undefined,
         schedule_enabled: scheduleEnabled,
         schedule_interval_minutes: scheduleEnabled ? intervalMinutes : undefined,
+        proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
+        batch_size: batchSize,
+        rpm,
+        concurrency,
+        strategy_id: strategyId,
       });
 
-      // Reset form
       setTargetUrl("");
       setPages(1);
-      setMake("");
-      setModel("");
-
-      // Reload trackings
+      setScheduleEnabled(false);
+      setLastTestSuccessUrl(null);
       await loadTrackings();
     } catch (e: any) {
       setError(e.message);
@@ -79,11 +111,14 @@ export default function SoldResultsPage() {
   };
 
   const handleRetry = async (trackingId: number) => {
+    setRetryingId(trackingId);
     try {
       await retryAuctionTracking(trackingId, false);
       await loadTrackings();
     } catch (e: any) {
       setError(e.message);
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -91,8 +126,15 @@ export default function SoldResultsPage() {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await testBidfaxParse(testUrl);
+      const result = await testBidfaxParse({
+        url: testUrl,
+        proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
+      });
       setTestResult(result);
+      if (result?.success || result?.ok) {
+        setLastTestSuccessUrl(testUrl);
+        setTargetUrl(testUrl);
+      }
     } catch (e: any) {
       setTestResult({ success: false, error: e.message });
     } finally {
@@ -110,13 +152,40 @@ export default function SoldResultsPage() {
     }
   };
 
+  const proxyLabel = (id?: number | null) => {
+    if (!id) return "None";
+    const found = proxyOptions.find((p) => p.id === id);
+    return found ? `${found.name} (#${found.id})` : `Proxy #${id}`;
+  };
+
+  const anyRunning = (counts["running"] || 0) > 0;
+
+  const testStatus = (() => {
+    if (!testResult) return null;
+    if (testResult.success || testResult.ok) return "ok";
+    if (testResult.partial) return "partial";
+    return "fail";
+  })();
+
+  const copyDebug = () => {
+    if (!testResult) return;
+    navigator.clipboard?.writeText(JSON.stringify(testResult, null, 2)).catch(() => {});
+  };
+
+  const proxyWarningVisible = !proxyWarningDismissed && !selectedProxyId;
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold text-slate-100">Sold Results (Bidfax)</h1>
-        <p className="text-sm text-slate-400">
-          Crawl Bidfax sold auction data and store as truth records
-        </p>
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-100">Sold Results (Bidfax)</h1>
+          <p className="text-sm text-slate-400">Wizard to test and launch Bidfax crawls.</p>
+        </div>
+        {anyRunning && (
+          <div className="flex items-center gap-2 text-green-300 text-sm">
+            <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse"></span> Running…
+          </div>
+        )}
       </header>
 
       {error && (
@@ -126,7 +195,32 @@ export default function SoldResultsPage() {
         </div>
       )}
 
-      {/* Status Overview */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Proxy</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <select
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+            value={selectedProxyId}
+            onChange={(e) => setSelectedProxyId(e.target.value ? Number(e.target.value) : "")}
+          >
+            <option value="">None (not recommended in prod)</option>
+            {proxyOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.scheme}://{p.host}:{p.port})
+              </option>
+            ))}
+          </select>
+          {proxyWarningVisible && (
+            <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-200 text-sm p-3 rounded flex justify-between">
+              <span>Bidfax blocks Render IPs. Select a proxy to avoid 403s.</span>
+              <button className="text-xs underline" onClick={() => setProxyWarningDismissed(true)}>Dismiss</button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 md:grid-cols-4">
         {["pending", "running", "done", "failed"].map((status) => (
           <Card key={status}>
@@ -138,120 +232,151 @@ export default function SoldResultsPage() {
         ))}
       </div>
 
-      {/* Create Crawl Job */}
+      <Card>
+        <CardHeader className="flex items-center justify-between">
+          <CardTitle>Test URL Parse</CardTitle>
+          <div className="text-xs text-slate-400">Runs through proxy above.</div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col md:flex-row gap-2">
+            <Input
+              className="flex-1"
+              placeholder="https://en.bidfax.info/ford/c-max/"
+              value={testUrl}
+              onChange={(e) => setTestUrl(e.target.value)}
+            />
+            <Button onClick={handleTestParse} disabled={testing || !testUrl}>
+              {testing ? "Testing..." : "Test"}
+            </Button>
+          </div>
+
+          {testResult && (
+            <div className="border border-slate-800 rounded p-3 bg-slate-900/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`h-3 w-3 rounded-full ${
+                      testStatus === "ok" ? "bg-green-400" : testStatus === "partial" ? "bg-amber-400" : "bg-red-400"
+                    }`}
+                  ></span>
+                  <span className="text-sm text-slate-200">
+                    {testStatus === "ok" ? "Success" : testStatus === "partial" ? "Partial" : "Failed"}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={copyDebug}>Copy debug</Button>
+                  {testResult.success || testResult.ok ? (
+                    <Button size="sm" onClick={() => { setTargetUrl(testUrl); setLastTestSuccessUrl(testUrl); }}>
+                      Use this URL for Crawl
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-2 text-sm text-slate-200">
+                <div>HTTP: {testResult.status || testResult.status_code || "n/a"}</div>
+                <div>Proxy: {selectedProxyId ? proxyLabel(Number(selectedProxyId)) : "None"}</div>
+                <div>Exit IP: {testResult.proxy_exit_ip || testResult.exit_ip || "—"}</div>
+                <div>Error: {testResult.error || testResult.message || "—"}</div>
+              </div>
+
+              {Array.isArray(testResult.preview) && testResult.preview.length > 0 && (
+                <div className="bg-slate-800/60 border border-slate-700 rounded p-3">
+                  <div className="text-xs uppercase text-slate-400 mb-2">Preview</div>
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-slate-100">
+                    {testResult.preview.slice(0, 3).map((item: any, idx: number) => (
+                      <div key={idx} className="border border-slate-700 rounded p-2">
+                        <div className="font-semibold text-slate-200">{item.title || item.vin || "Item"}</div>
+                        <div className="text-xs text-slate-400">Status: {item.sale_status || "?"}</div>
+                        <div className="text-xs text-slate-400">Bid: {item.final_bid || item.sold_price || "?"}</div>
+                        <div className="text-xs text-slate-400">VIN: {item.vin || "?"}</div>
+                        <div className="text-xs text-slate-400">Lot: {item.lot_id || "?"}</div>
+                        <div className="text-xs text-slate-400">Sold: {item.sold_at || "?"}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Create Crawl Job</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleCreateJob} className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="targetUrl">Target URL *</Label>
-                <Input
-                  id="targetUrl"
-                  type="url"
-                  placeholder="https://en.bidfax.info/ford/c-max/"
-                  value={targetUrl}
-                  onChange={(e) => setTargetUrl(e.target.value)}
-                  required
-                />
+            <div className="space-y-2">
+              <Label>Target URL</Label>
+              <Input
+                placeholder="Use Test Parse to fill this"
+                value={targetUrl || lastTestSuccessUrl || ""}
+                onChange={(e) => setTargetUrl(e.target.value)}
+                disabled={!testResult?.success && !testResult?.ok && !targetUrl}
+              />
+              {lastTestSuccessUrl && (
+                <p className="text-xs text-green-300">Filled from last successful test.</p>
+              )}
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <Label>Pages</Label>
+                <Input type="number" min={1} max={100} value={pages} onChange={(e) => setPages(Number(e.target.value))} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="pages">Pages to Crawl *</Label>
-                <Input
-                  id="pages"
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={pages}
-                  onChange={(e) => setPages(Number(e.target.value))}
-                  required
-                />
+              <div>
+                <Label>Batch size/run</Label>
+                <Input type="number" min={1} value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} />
+              </div>
+              <div>
+                <Label>RPM limit</Label>
+                <Input type="number" min={1} value={rpm} onChange={(e) => setRpm(Number(e.target.value))} />
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="make">Make (optional)</Label>
-                <Input
-                  id="make"
-                  placeholder="Ford"
-                  value={make}
-                  onChange={(e) => setMake(e.target.value)}
-                />
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <Label>Concurrency</Label>
+                <Input type="number" min={1} value={concurrency} onChange={(e) => setConcurrency(Number(e.target.value))} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="model">Model (optional)</Label>
-                <Input
-                  id="model"
-                  placeholder="C-Max"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                />
+              <div className="flex items-center gap-2 mt-6">
+                <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
+                <span className="text-sm text-slate-300">Enable schedule</span>
               </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={scheduleEnabled}
-                  onChange={(e) => setScheduleEnabled(e.target.checked)}
-                />
-                <span className="text-sm text-slate-300">Enable Schedule</span>
-              </label>
               {scheduleEnabled && (
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="interval">Interval (minutes)</Label>
-                  <Input
-                    id="interval"
-                    type="number"
-                    min="10"
-                    value={intervalMinutes}
-                    onChange={(e) => setIntervalMinutes(Number(e.target.value))}
-                    className="w-24"
-                  />
+                <div>
+                  <Label>Run every (minutes)</Label>
+                  <Input type="number" min={1} value={intervalMinutes} onChange={(e) => setIntervalMinutes(Number(e.target.value))} />
                 </div>
               )}
             </div>
 
-            <Button type="submit" disabled={creating}>
+            <div className="space-y-2">
+              <Label>Strategy</Label>
+              <select
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+                value={strategyId}
+                onChange={(e) => setStrategyId(e.target.value)}
+              >
+                <option value="default">Default Bidfax Strategy</option>
+              </select>
+              <p className="text-xs text-slate-500">TODO: load strategies from API when available.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Proxy (uses global selection)</Label>
+              <Input disabled value={selectedProxyId ? proxyLabel(Number(selectedProxyId)) : "None"} />
+            </div>
+
+            <Button type="submit" disabled={creating || (!targetUrl && !lastTestSuccessUrl)}>
               {creating ? "Creating..." : "Start Crawl"}
             </Button>
           </form>
         </CardContent>
       </Card>
 
-      {/* Test URL Parse */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Test URL Parse</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                placeholder="https://en.bidfax.info/ford/c-max/"
-                value={testUrl}
-                onChange={(e) => setTestUrl(e.target.value)}
-              />
-              <Button onClick={handleTestParse} disabled={testing || !testUrl}>
-                {testing ? "Testing..." : "Test"}
-              </Button>
-            </div>
-            {testResult && (
-              <div className="bg-slate-900 border border-slate-700 rounded p-4 text-sm font-mono">
-                <pre className="text-slate-300 whitespace-pre-wrap overflow-auto max-h-96">
-                  {JSON.stringify(testResult, null, 2)}
-                </pre>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Tracking List */}
       <Card>
         <CardHeader>
           <CardTitle>Recent Tracking</CardTitle>
@@ -266,6 +391,8 @@ export default function SoldResultsPage() {
                   <tr className="text-left">
                     <th className="pb-2 text-slate-400">URL</th>
                     <th className="pb-2 text-slate-400">Status</th>
+                    <th className="pb-2 text-slate-400">Proxy</th>
+                    <th className="pb-2 text-slate-400">Exit IP</th>
                     <th className="pb-2 text-slate-400">Attempts</th>
                     <th className="pb-2 text-slate-400">Items Saved</th>
                     <th className="pb-2 text-slate-400">Next Check</th>
@@ -282,22 +409,25 @@ export default function SoldResultsPage() {
                       <td className={`py-2 capitalize ${statusColor(t.status)}`}>
                         {t.status}
                       </td>
+                      <td className="py-2 text-slate-400">{proxyLabel(t.proxy_id)}</td>
+                      <td className="py-2 text-slate-400 text-xs">{t.proxy_exit_ip || "—"}</td>
                       <td className="py-2 text-slate-400">{t.attempts}</td>
                       <td className="py-2 text-slate-400">{t.stats?.items_saved || 0}</td>
                       <td className="py-2 text-slate-400 text-xs">
                         {t.next_check_at ? new Date(t.next_check_at).toLocaleString() : "—"}
                       </td>
-                      <td className="py-2 text-red-400 text-xs max-w-xs truncate" title={t.last_error || ""}>
-                        {t.last_error || "—"}
+                      <td className="py-2 text-red-400 text-xs max-w-xs truncate" title={t.last_error || t.proxy_error || ""}>
+                        {t.last_error || t.proxy_error || "—"}
                       </td>
                       <td className="py-2">
                         {t.status === "failed" && (
                           <Button
                             variant="ghost"
+                            className={`text-xs ${retryingId === t.id ? "text-green-300" : "text-slate-200"}`}
                             onClick={() => handleRetry(t.id)}
-                            className="text-xs"
+                            disabled={retryingId === t.id}
                           >
-                            Retry
+                            {retryingId === t.id ? "Retrying..." : "Retry"}
                           </Button>
                         )}
                       </td>
