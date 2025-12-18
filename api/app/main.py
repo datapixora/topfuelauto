@@ -17,6 +17,7 @@ from app.routers.admin_search_fields import router as admin_search_fields_router
 from app.routers.admin_auction import router as admin_auction_router
 from app.routers.public_plans import router as public_plans_router
 from app.routers.meta import router as meta_router
+from app.routers.admin_db import router as admin_db_router
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ app.include_router(admin_proxies_router)
 app.include_router(admin_imports_router)
 app.include_router(admin_search_fields_router)
 app.include_router(admin_auction_router)
+app.include_router(admin_db_router)
 app.include_router(billing.router)
 app.include_router(assist.router)
 app.include_router(alerts.router)
