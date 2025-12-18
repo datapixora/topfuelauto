@@ -368,12 +368,17 @@ export async function updateWebCrawlProviderConfig(
   return res.json();
 }
 
-async function apiPost(path: string, body: any) {
-  const res = await authFetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+async function apiPost(path: string, body: any, init?: RequestInit) {
+  const res = await authFetch(
+    path,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      ...(init || {}),
+    },
+    { requireAuth: true, redirectOn401: true }
+  );
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Request failed (${res.status}): ${txt}`);
@@ -646,6 +651,6 @@ export async function listAuctionSales(params: {
   return apiGet(`/admin/data-engine/bidfax/auction-sales?${qs.toString()}`);
 }
 
-export async function testBidfaxParse(payload: { url: string; proxy_id?: number | null; fetch_mode?: string }) {
-  return apiPost(`/admin/data-engine/bidfax/test-parse`, payload);
+export async function testBidfaxParse(payload: { url: string; proxy_id?: number | null; fetch_mode?: string }, opts?: { signal?: AbortSignal }) {
+  return apiPost(`/admin/data-engine/bidfax/test-parse`, payload, { signal: opts?.signal });
 }

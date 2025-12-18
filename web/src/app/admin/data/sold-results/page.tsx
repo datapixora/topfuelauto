@@ -37,7 +37,7 @@ export default function SoldResultsPage() {
 
   // Test parse state
   const [testUrl, setTestUrl] = useState("");
-  const [testFetchMode, setTestFetchMode] = useState<"http" | "browser">("http");
+  const [testFetchMode, setTestFetchMode] = useState<"http" | "browser">("browser");
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
   const [lastTestSuccessUrl, setLastTestSuccessUrl] = useState<string | null>(null);
@@ -128,20 +128,25 @@ export default function SoldResultsPage() {
   const handleTestParse = async () => {
     setTesting(true);
     setTestResult(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
     try {
       const result = await testBidfaxParse({
         url: testUrl,
         proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
         fetch_mode: testFetchMode,
-      });
+      }, { signal: controller.signal });
       setTestResult(result);
       if (result?.success || result?.ok) {
         setLastTestSuccessUrl(testUrl);
         setTargetUrl(testUrl);
       }
     } catch (e: any) {
-      setTestResult({ success: false, error: e.message });
+      const message = e?.name === "AbortError" ? "Request timed out (25s)" : e?.message || "Request failed";
+      setTestResult({ success: false, error: message });
+      console.error("Test parse error", e);
     } finally {
+      clearTimeout(timeout);
       setTesting(false);
     }
   };

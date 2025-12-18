@@ -287,6 +287,14 @@ def test_parse_url(
         else:
             proxy_url = None
 
+        logger.info(
+            "BIDFAX TEST-PARSE RECEIVED",
+            extra={
+                "url": request.url,
+                "fetch_mode": request.fetch_mode,
+                "proxy_id": request.proxy_id,
+            },
+        )
         # Fetch HTML using specified mode
         provider = BidfaxHtmlProvider()
         logger.info(
