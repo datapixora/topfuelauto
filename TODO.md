@@ -135,6 +135,7 @@
 120. [ ] Bidfax test-parse hardening: expanded CORS defaults for admin web origins, added test-parse receipt logging, Playwright goto timeout to avoid hangs, and frontend Test Parse uses AbortController (25s) with surfaced errors.
 121. [ ] Render deploy: start command now uses uvicorn with PORT default fallback and log-level info (`cd api && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info`) to avoid "No open ports detected" and ensure web service binds.
 122. [ ] Render start command hardened: use bash -lc with separators and preflight checks (echo PORT, python -V, import app.main) then run alembic upgrade and exec uvicorn on ${PORT:-8000} --log-level debug to surface startup errors and satisfy port scan.
+123. [ ] Further Render start logging: added uvicorn version + explicit "Starting uvicorn..." echo to confirm launch before port scan.
 
 ## is_pro removal audit
 - [x] api/app/routers/auth.py uses plan resolver (is_pro deprecated only)
