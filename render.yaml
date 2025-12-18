@@ -14,7 +14,8 @@ services:
       pip install --upgrade pip
       pip install -r requirements.txt
       PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers python -m playwright install chromium
-    startCommand: bash -lc 'set -euxo pipefail; cd api; echo "PORT=${PORT:-8000}"; python -V; python -c "from app.main import app; print(\"import app.main OK\")"; alembic upgrade head; python -c "import uvicorn; print(f\"uvicorn {uvicorn.__version__}\")"; echo \"Starting uvicorn...\"; exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level debug'
+    preDeployCommand: cd api && alembic upgrade head
+    startCommand: cd api && exec python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
