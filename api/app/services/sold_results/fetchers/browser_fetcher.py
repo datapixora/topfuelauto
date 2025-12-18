@@ -79,7 +79,11 @@ class BrowserFetcher:
                 page = context.new_page()
                 page.set_default_timeout(self.timeout_ms)
 
-                response = page.goto(url, wait_until='domcontentloaded')
+                response = page.goto(
+                    url,
+                    wait_until='domcontentloaded',
+                    timeout=self.timeout_ms,
+                )
 
                 if not response:
                     raise PlaywrightError("Navigation failed: no response")
