@@ -203,6 +203,18 @@ export async function signup(email: string, password: string): Promise<TokenResp
   return res.json();
 }
 
+export async function getCurrentUser() {
+  return apiGet<{
+    id: number;
+    email: string;
+    is_admin?: boolean;
+    is_active?: boolean;
+    plan_id?: number | null;
+    plan_name?: string | null;
+    plan_key?: string | null;
+  }>("/auth/me", undefined, { requireAuth: true, redirectOn401: false });
+}
+
 export async function getQuota(): Promise<QuotaInfo> {
   const res = await authFetch("/auth/me/quota");
   if (!res.ok) throw new Error("Unable to load quota");

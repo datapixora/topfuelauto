@@ -301,3 +301,47 @@ SELECT * FROM merged_listings WHERE extra->>'transmission' ILIKE '%manual%';
 
 **Result**: Endpoint now properly serializes SQLAlchemy datetime objects to ISO format strings in JSON responses.
 
+
+## Login Page Redirect for Authenticated Users
+**Date**: 2025-12-18
+**Feature**: Prevent authenticated users from seeing the login form by redirecting them immediately
+
+### Implementation
+- Added `getCurrentUser()` API function in `web/src/lib/api.ts` that calls `/auth/me` without auto-redirect on 401
+- Created `getNextUrl()` helper in `web/src/lib/utils.ts` to safely validate the `next` query parameter (prevents open redirect vulnerabilities)
+- Updated `web/src/app/login/page.tsx` to:
+  - Check authentication status on mount using token + `/auth/me` call
+  - Show "Checking session..." loading state while verifying auth
+  - Redirect authenticated users to:
+    - The `next` query parameter (if valid and same-origin)
+    - `/admin` for admin users (when no `next` parameter)
+    - `/dashboard` for regular users (when no `next` parameter)
+  - Clear invalid tokens and show login form for unauthenticated users
+  - Prevent form flicker by rendering loading state until auth check completes
+
+### Manual QA Checklist
+- [ ] **Unauthenticated user**: Visit `/login` → should see login form immediately (no redirect)
+- [ ] **Authenticated regular user**: Visit `/login` → should redirect to `/dashboard` (no form shown)
+- [ ] **Authenticated admin user**: Visit `/login` → should redirect to `/admin` (no form shown)
+- [ ] **With valid next param**: Visit `/login?next=/account/alerts` → should redirect to `/account/alerts` after auth check
+- [ ] **With invalid next param (external)**: Visit `/login?next=https://evil.com` → should redirect to default page (not external site)
+- [ ] **With invalid next param (protocol-relative)**: Visit `/login?next=//evil.com` → should redirect to default page
+- [ ] **With invalid next param (javascript)**: Visit `/login?next=javascript:alert(1)` → should redirect to default page
+- [ ] **Loading state**: Should see "Checking session..." with spinner while auth check is in progress (no form flicker)
+- [ ] **Expired token**: User with expired/invalid token visits `/login` → token cleared, login form shown
+- [ ] **After successful login**: Complete login form → should redirect to `next` parameter or default page based on user role
+- [ ] **No token**: User with no token visits `/login` → should see form immediately (minimal delay)
+- [ ] **Admin with next param**: Admin visits `/login?next=/account` → should redirect to `/account` (respects next over role-based default)
+
+### Security Notes
+- `getNextUrl()` validates that redirect URLs are:
+  - Same-origin (start with `/`)
+  - Not protocol-relative URLs (`//example.com`)
+  - Not javascript: or data: URLs
+- Invalid `next` parameters fall back to safe defaults (`/dashboard` or `/admin`)
+
+### Files Modified
+- `web/src/lib/api.ts` - Added `getCurrentUser()` function
+- `web/src/lib/utils.ts` - Added `getNextUrl()` helper for safe redirects
+- `web/src/app/login/page.tsx` - Added auth check on mount with loading state and redirect logic
+
