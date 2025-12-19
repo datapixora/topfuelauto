@@ -279,7 +279,7 @@ async def test_parse_url(
         )
 
     try:
-        async with anyio.fail_after(24):
+        with anyio.fail_after(24):
             return await run_sync_handler()
     except TimeoutError:
         latency_ms = int((time.time() - start_time) * 1000)
