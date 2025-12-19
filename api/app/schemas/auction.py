@@ -162,6 +162,7 @@ class DebugInfo(BaseModel):
     url: str
     provider: str = "bidfax_html"
     fetch_mode: str = "http"
+    request_id: Optional[str] = None
 
 
 class BidfaxTestParseResponse(BaseModel):

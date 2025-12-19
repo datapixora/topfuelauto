@@ -367,3 +367,10 @@ SELECT * FROM merged_listings WHERE extra->>'transmission' ILIKE '%manual%';
 - Admin test-parse now retries once with the next healthy proxy, returns structured `error` object, and never wraps 502 inside 200+HTTPException text.  
 - UI shows proxy stage/error_code/latency, always stops the spinner, and adds quick “Try next proxy” / “Try without proxy” actions.
 
+## Sold Results Test-Parse Error Hardening
+**Date**: 2025-12-19  
+- Added request_id logging + propagation to debug payload, full traceback logging on unexpected errors.  
+- Normalized proxy_id inputs (""/0→None), fetch_mode validation, and structured fail responses with error code/stage/message.  
+- Guarded empty HTML / invalid fetch_mode paths, improved proxy health fallback handling.  
+- Added smoke test for test-parse endpoint covering proxy_id null/"" and http/browser fetch modes.
+
