@@ -317,11 +317,14 @@ def test_parse_url(
         )
 
     def _healthy_proxies(exclude_ids: Optional[set[int]] = None):
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         exclude = exclude_ids or set()
         return [
             p for p in proxy_service.list_enabled_proxies(db)
-            if p.id not in exclude and (not p.unhealthy_until or p.unhealthy_until <= now)
+            if p.id not in exclude and (
+                not p.unhealthy_until
+                or (p.unhealthy_until.replace(tzinfo=timezone.utc) if p.unhealthy_until.tzinfo is None else p.unhealthy_until) <= now
+            )
         ]
 
     # Validate fetch_mode
