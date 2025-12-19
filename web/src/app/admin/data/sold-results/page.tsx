@@ -290,7 +290,7 @@ export default function SoldResultsPage() {
               <option value="http">HTTP</option>
               <option value="browser">Browser</option>
             </select>
-            <Button onClick={handleTestParse} disabled={testing || !testUrl}>
+            <Button onClick={() => void handleTestParse()} disabled={testing || !testUrl}>
               {testing ? "Testing..." : "Test"}
             </Button>
           </div>
