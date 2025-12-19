@@ -197,6 +197,7 @@ export default function SoldResultsPage() {
   const proxyLatency = testResult?.proxy?.latency_ms ?? null;
   const httpStatus = testResult?.http?.status || testResult?.status || testResult?.status_code || null;
   const httpLatency = testResult?.http?.latency_ms ?? null;
+  const requestId = testResult?.debug?.request_id || testResult?.error?.request_id || testResult?.request_id || null;
   const primaryMessage =
     testResult?.error?.message ||
     testResult?.http?.error ||
@@ -348,6 +349,7 @@ export default function SoldResultsPage() {
                 <div>Error code: {proxyErrorCode || "-"}</div>
                 <div>Proxy latency: {proxyLatency ? `${proxyLatency} ms` : "-"}</div>
                 <div>Exit IP: {testResult.proxy?.exit_ip || testResult.proxy_exit_ip || testResult.exit_ip || "-"}</div>
+                <div>Request ID: {requestId || "-"}</div>
                 <div className="md:col-span-3">Message: {primaryMessage || "-"}</div>
               </div>
 

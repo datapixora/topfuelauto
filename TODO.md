@@ -373,4 +373,5 @@ SELECT * FROM merged_listings WHERE extra->>'transmission' ILIKE '%manual%';
 - Normalized proxy_id inputs (""/0→None), fetch_mode validation, and structured fail responses with error code/stage/message.  
 - Guarded empty HTML / invalid fetch_mode paths, improved proxy health fallback handling.  
 - Added smoke test for test-parse endpoint covering proxy_id null/"" and http/browser fetch modes.
+- Added version endpoint and response headers for handler discovery (build SHA, route, request_id); UI now surfaces request_id with errors.
 

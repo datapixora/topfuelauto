@@ -1,6 +1,6 @@
 """Admin API endpoints for auction sold results (Bidfax crawling)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from typing import List, Optional
@@ -9,6 +9,7 @@ import time
 import uuid
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.core.security import get_current_admin
 from app.models.user import User
 from app.models.auction_sale import AuctionSale
@@ -20,6 +21,7 @@ import logging
 
 router = APIRouter(prefix="/api/v1/admin/data-engine/bidfax", tags=["admin", "auction"])
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 @router.post("/jobs", response_model=dict, status_code=201)
@@ -236,6 +238,7 @@ def list_auction_sales(
 @router.post("/test-parse", response_model=schemas.BidfaxTestParseResponse)
 def test_parse_url(
     request: schemas.BidfaxTestParseRequest,
+    response: Response,
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -269,6 +272,14 @@ def test_parse_url(
     if proxy_id in ("", 0):
         proxy_id = None
     fetch_mode = request.fetch_mode
+
+    def _set_headers():
+        response.headers["X-Request-Id"] = request_id
+        response.headers["X-Route-Handler"] = "admin_auction.test_parse_url"
+        if settings.git_sha:
+            response.headers["X-Build-Sha"] = settings.git_sha
+
+    _set_headers()
 
     def fail_response(code: Optional[str], stage: Optional[str], message: str, http_status: int = 0, latency_ms: int = 0):
         error_obj = schemas.ErrorInfo(code=code, stage=stage, message=message)
@@ -401,7 +412,7 @@ def test_parse_url(
 
         # Logging context
         logger.info(
-            "BIDFAX TEST-PARSE RECEIVED",
+            "TEST_PARSE_HANDLER_V2",
             extra={
                 "url": request.url,
                 "fetch_mode": fetch_mode,
