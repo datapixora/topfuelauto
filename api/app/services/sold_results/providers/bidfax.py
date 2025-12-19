@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from ..fetch_diagnostics import FetchDiagnostics
 from ..fetchers import HttpFetcher, BrowserFetcher
+from ..fetchers.curl_fetcher import CurlFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,8 @@ class BidfaxHtmlProvider:
             rate_limit_per_minute: Maximum requests per minute for HTTP mode (default: 30)
         """
         self.http_fetcher = HttpFetcher(rate_limit_per_minute=rate_limit_per_minute)
-        self.browser_fetcher = BrowserFetcher(headless=True, timeout_ms=30000)
+        self.browser_fetcher = BrowserFetcher(headless=True, timeout_ms=20000)
+        self.curl_fetcher = CurlFetcher(timeout=12.0)
 
     def fetch_list_page(
         self,
@@ -53,10 +55,33 @@ class BidfaxHtmlProvider:
         Raises:
             ValueError: If fetch_mode is invalid
         """
+        attempts = []
+
+        def record(diag: FetchDiagnostics):
+            attempts.append(
+                {
+                    "mode": diag.fetch_mode,
+                    "status": diag.status_code,
+                    "latency_ms": diag.latency_ms,
+                    "error": diag.error,
+                    "proxy_id": proxy_id,
+                }
+            )
+            diag.attempts = attempts
+            return diag
+
         if fetch_mode == "http":
-            return self.http_fetcher.fetch(url, proxy_url=proxy_url, timeout=timeout)
+            http_res = record(self.http_fetcher.fetch(url, proxy_url=proxy_url, timeout=timeout))
+            blocked = (http_res.status_code in (403, 429)) or (http_res.status_code == 0) or (http_res.html is None) or (http_res.html == "")
+            if blocked:
+                curl_res = record(self.curl_fetcher.fetch(url, proxy_url=proxy_url))
+                if curl_res.status_code == 200 and curl_res.html:
+                    return curl_res
+                browser_res = record(self.browser_fetcher.fetch(url, proxy_url=proxy_url, proxy_id=proxy_id))
+                return browser_res
+            return http_res
         elif fetch_mode == "browser":
-            return self.browser_fetcher.fetch(url, proxy_url=proxy_url, proxy_id=proxy_id)
+            return record(self.browser_fetcher.fetch(url, proxy_url=proxy_url, proxy_id=proxy_id))
         else:
             raise ValueError(f"Invalid fetch_mode: {fetch_mode}. Must be 'http' or 'browser'.")
 

@@ -35,3 +35,6 @@ class FetchDiagnostics:
 
     browser_version: Optional[str] = None
     """Browser version string (for browser mode only)"""
+
+    attempts: list = None
+    """List of attempt metadata dictionaries (optional)"""

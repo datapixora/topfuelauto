@@ -62,9 +62,10 @@ class BrowserFetcher:
                 if proxy_url:
                     proxy_config = self._parse_proxy_url(proxy_url)
 
-                # Launch browser
+                # Launch browser with proxy at launch
                 browser = p.chromium.launch(
                     headless=self.headless,
+                    proxy=proxy_config,
                     args=[
                         '--disable-blink-features=AutomationControlled',
                         '--disable-dev-shm-usage',
@@ -72,17 +73,23 @@ class BrowserFetcher:
                     ]
                 )
 
-                # Create context with proxy
+                # Create context
                 context = browser.new_context(
-                    proxy=proxy_config,
                     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     viewport={'width': 1920, 'height': 1080},
                     locale='en-US',
+                    timezone_id='America/New_York',
                 )
 
-                # Create page and navigate
+                # Block heavy resources
+                def _block_route(route):
+                    if route.request.resource_type in ("image", "font", "media", "stylesheet"):
+                        return route.abort()
+                    return route.continue_()
+
                 page = context.new_page()
                 page.set_default_timeout(self.timeout_ms)
+                page.route("**/*", _block_route)
 
                 response = page.goto(
                     url,

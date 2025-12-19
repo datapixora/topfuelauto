@@ -163,6 +163,7 @@ class DebugInfo(BaseModel):
     provider: str = "bidfax_html"
     fetch_mode: str = "http"
     request_id: Optional[str] = None
+    attempts: list[dict] = Field(default_factory=list)
 
 
 class BidfaxTestParseResponse(BaseModel):
