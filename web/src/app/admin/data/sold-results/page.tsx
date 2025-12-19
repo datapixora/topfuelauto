@@ -310,12 +310,22 @@ export default function SoldResultsPage() {
                 </div>
                 <div className="flex gap-2">
                   {testStatus === "fail" && proxyOptions.length > 1 && (
-                    <Button variant="outline" className="h-8 px-2 text-xs" disabled={testing} onClick={handleTryNextProxy}>
+                    <Button
+                      variant="ghost"
+                      className="h-8 px-2 text-xs"
+                      disabled={testing}
+                      onClick={() => void handleTryNextProxy()}
+                    >
                       Try next proxy
                     </Button>
                   )}
                   {testStatus === "fail" && (
-                    <Button variant="ghost" className="h-8 px-2 text-xs" disabled={testing} onClick={handleTryWithoutProxy}>
+                    <Button
+                      variant="ghost"
+                      className="h-8 px-2 text-xs"
+                      disabled={testing}
+                      onClick={() => void handleTryWithoutProxy()}
+                    >
                       Try without proxy
                     </Button>
                   )}
