@@ -358,3 +358,12 @@ SELECT * FROM merged_listings WHERE extra->>'transmission' ILIKE '%manual%';
 - `web/src/lib/utils.ts` - Added `getNextUrl()` helper for safe redirects
 - `web/src/app/login/page.tsx` - Added auth check on mount with loading state and redirect logic
 
+
+## Bidfax Proxy Diagnostics & UI
+**Date**: 2025-12-19  
+**Updates**:
+- Split Smartproxy health check into HTTP + HTTPS stages with explicit `stage`/`error_code` mapping (EOF, connect/handshake timeout, auth, DNS, status).  
+- Standardized Playwright proxy config to `http://host:port` + username/password fields and improved browser fetch logging (start/end).  
+- Admin test-parse now retries once with the next healthy proxy, returns structured `error` object, and never wraps 502 inside 200+HTTPException text.  
+- UI shows proxy stage/error_code/latency, always stops the spinner, and adds quick “Try next proxy” / “Try without proxy” actions.
+

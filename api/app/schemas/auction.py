@@ -127,6 +127,13 @@ class HttpInfo(BaseModel):
     latency_ms: int
 
 
+class ErrorInfo(BaseModel):
+    """Top-level error descriptor with stage + code."""
+    code: Optional[str] = None
+    stage: Optional[str] = None
+    message: Optional[str] = None
+
+
 class ProxyInfo(BaseModel):
     """Proxy diagnostics."""
     used: bool
@@ -136,6 +143,7 @@ class ProxyInfo(BaseModel):
     error: Optional[str] = None
     error_code: Optional[str] = None
     stage: Optional[str] = None
+    latency_ms: Optional[int] = None
 
 
 class ParseInfo(BaseModel):
@@ -166,3 +174,4 @@ class BidfaxTestParseResponse(BaseModel):
     fetch_mode: str = "http"
     final_url: Optional[str] = None
     html: Optional[str] = None
+    error: Optional[ErrorInfo] = None

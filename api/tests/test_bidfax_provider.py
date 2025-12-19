@@ -349,7 +349,7 @@ def test_browser_fetcher_parse_proxy_url():
 
     # Test HTTPS proxy
     result_https = fetcher._parse_proxy_url("https://admin:secret@secure.proxy:443")
-    assert result_https["server"] == "https://secure.proxy:443"
+    assert result_https["server"] == "http://secure.proxy:443"
     assert result_https["username"] == "admin"
     assert result_https["password"] == "secret"
 

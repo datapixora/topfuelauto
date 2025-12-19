@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import logging
 import random
 from typing import List, Optional, Tuple
 import httpx
@@ -13,6 +14,10 @@ SENSITIVE_FIELDS = ["password"]
 CONNECT_TIMEOUT = 8.0
 READ_TIMEOUT = 10.0
 OVERALL_TIMEOUT = 20.0
+IPIFY_HTTP = "http://api.ipify.org?format=json"
+IPIFY_HTTPS = "https://api.ipify.org?format=json"
+
+logger = logging.getLogger(__name__)
 
 
 def _encrypt_password(password: Optional[str]) -> Optional[str]:
@@ -79,47 +84,189 @@ def update_proxy(db: Session, proxy_id: int, payload: dict) -> Optional[ProxyEnd
 
 # Health check
 
-def check_proxy(db: Session, proxy: ProxyEndpoint) -> dict:
-    proxy_url = build_proxy_url(proxy)
-    result = {"ok": False, "stage": "proxy_check", "error_code": None}
+def _map_proxy_error(stage: str, exc: Exception) -> Tuple[str, str]:
+    """
+    Map httpx exception to normalized proxy error_code and message.
+    """
+    msg = str(exc)
+    lower = msg.lower()
+    code = None
+
+    if isinstance(exc, httpx.ConnectTimeout):
+        code = "PROXY_CONNECT_TIMEOUT"
+    elif isinstance(exc, httpx.ReadTimeout):
+        # Treat read timeout during CONNECT/TLS as handshake timeout
+        code = "PROXY_SSL_HANDSHAKE_TIMEOUT"
+    elif isinstance(exc, httpx.ProxyError):
+        if "unexpected eof" in lower or "eof occurred" in lower:
+            code = "PROXY_TLS_EOF" if stage == "proxy_check_https" else "PROXY_EOF"
+        elif "auth" in lower or "forbidden" in lower or "407" in lower:
+            code = "PROXY_AUTH_FAILED"
+        elif "dns" in lower or "getaddrinfo" in lower or "name or service" in lower:
+            code = "PROXY_DNS_FAILED"
+    elif isinstance(exc, httpx.ConnectError):
+        if "dns" in lower or "getaddrinfo" in lower or "name or service" in lower:
+            code = "PROXY_DNS_FAILED"
+    # Generic EOF detector (covers ssl.SSLError path)
+    if not code and ("unexpected eof" in lower or "eof occurred" in lower):
+        code = "PROXY_TLS_EOF" if stage == "proxy_check_https" else "PROXY_EOF"
+    if not code and ("auth" in lower or "forbidden" in lower or "407" in lower):
+        code = "PROXY_AUTH_FAILED"
+    if not code and ("dns" in lower or "getaddrinfo" in lower or "name or service" in lower):
+        code = "PROXY_DNS_FAILED"
+
+    return code or "PROXY_ERROR", msg
+
+
+def _probe_proxy_stage(proxy_url: str, target_url: str, stage: str) -> Tuple[dict, Optional[str], Optional[str]]:
+    """
+    Execute a lightweight request through the proxy for the given stage.
+    Returns probe result + (error_code, error_message).
+    """
+    start = datetime.utcnow()
+    timeout = httpx.Timeout(OVERALL_TIMEOUT, connect=CONNECT_TIMEOUT, read=READ_TIMEOUT, write=READ_TIMEOUT)
     try:
-        timeout = httpx.Timeout(OVERALL_TIMEOUT, connect=CONNECT_TIMEOUT, read=READ_TIMEOUT, write=READ_TIMEOUT)
         with httpx.Client(proxy=proxy_url, timeout=timeout, verify=False) as client:
-            start = datetime.utcnow()
-            resp = client.get("https://api.ipify.org", params={"format": "json"})
-            elapsed = (datetime.utcnow() - start).total_seconds() * 1000
-            result.update({
+            resp = client.get(target_url)
+            latency_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
+            content_type = resp.headers.get("content-type", "").lower()
+            exit_ip = None
+            if resp.status_code == 200:
+                if "application/json" in content_type:
+                    try:
+                        exit_ip = resp.json().get("ip")
+                    except Exception:
+                        exit_ip = None
+                else:
+                    exit_ip = (resp.text or "").strip()
+            probe = {
                 "ok": resp.status_code == 200,
                 "status_code": resp.status_code,
                 "body_len": len(resp.text or ""),
-                "exit_ip": resp.json().get("ip") if resp.headers.get("content-type", "").startswith("application/json") else None,
-                "elapsed_ms": int(elapsed),
-            })
-    except httpx.ConnectTimeout:
-        result["error"] = "Proxy connect timeout"
-        result["error_code"] = "PROXY_CONNECT_TIMEOUT"
-    except httpx.ReadTimeout:
-        result["error"] = "Proxy SSL/handshake timeout"
-        result["error_code"] = "PROXY_SSL_HANDSHAKE_TIMEOUT"
-    except httpx.ProxyError as e:
-        msg = str(e)
-        result["error"] = msg
-        if "403" in msg or "auth" in msg.lower():
-            result["error_code"] = "PROXY_AUTH_FAILED"
-    except Exception as e:
-        result["error"] = str(e)
+                "exit_ip": exit_ip,
+                "latency_ms": latency_ms,
+                "url": target_url,
+            }
+            if not probe["ok"]:
+                return probe, "PROXY_HTTP_STATUS", f"Unexpected status {resp.status_code}"
+            return probe, None, None
+    except Exception as exc:  # noqa: BLE001 - we map to structured codes
+        latency_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
+        code, message = _map_proxy_error(stage, exc)
+        return (
+            {
+                "ok": False,
+                "status_code": None,
+                "body_len": 0,
+                "exit_ip": None,
+                "latency_ms": latency_ms,
+                "url": target_url,
+                "error": str(exc),
+            },
+            code,
+            message,
+        )
 
-    # persist
-    proxy.last_check_at = datetime.utcnow()
-    proxy.last_check_status = "ok" if result.get("ok") else "failed"
-    proxy.last_exit_ip = result.get("exit_ip")
-    proxy.last_error = result.get("error")
-    if not result.get("ok"):
-        proxy.unhealthy_until = datetime.utcnow() + timedelta(minutes=5)
-    db.add(proxy)
-    db.commit()
-    db.refresh(proxy)
-    return result
+
+def check_proxy(db: Session, proxy: ProxyEndpoint) -> dict:
+    proxy_url = build_proxy_url(proxy)
+    result = {
+        "ok": False,
+        "stage": "proxy_check_http",
+        "error_code": None,
+        "exit_ip": None,
+        "proxy": {
+            "id": proxy.id,
+            "name": proxy.name,
+            "host": proxy.host,
+            "port": proxy.port,
+            "scheme": proxy.scheme,
+        },
+        "http": None,
+        "https": None,
+        "error": None,
+        "debug": {
+            "proxy_url": f"{proxy.scheme}://{proxy.host}:{proxy.port}",
+        },
+    }
+
+    def _persist(outcome: dict) -> dict:
+        proxy.last_check_at = datetime.utcnow()
+        proxy.last_check_status = "ok" if outcome.get("ok") else "failed"
+        proxy.last_exit_ip = outcome.get("exit_ip")
+        proxy.last_error = None
+        if not outcome.get("ok"):
+            proxy.unhealthy_until = datetime.utcnow() + timedelta(minutes=5)
+            err_obj = outcome.get("error") or {}
+            if isinstance(err_obj, dict):
+                proxy.last_error = err_obj.get("message")
+            else:
+                proxy.last_error = str(err_obj) if err_obj else None
+            if not proxy.last_error:
+                proxy.last_error = outcome.get("error_code") or outcome.get("http", {}).get("error") or None
+        db.add(proxy)
+        db.commit()
+        db.refresh(proxy)
+        return outcome
+
+    # Stage 1: plain HTTP (no TLS) to confirm basic CONNECT/forwarding
+    http_probe, http_code, http_msg = _probe_proxy_stage(proxy_url, IPIFY_HTTP, "proxy_check_http")
+    result["http"] = http_probe
+    if not http_probe.get("ok"):
+        result["error_code"] = http_code
+        result["stage"] = "proxy_check_http"
+        result["error"] = {"code": http_code, "stage": "proxy_check_http", "message": http_msg or http_probe.get("error")}
+        logger.warning(
+            "PROXY_CHECK_HTTP_FAIL proxy_id=%s latency_ms=%s code=%s err=%s",
+            proxy.id,
+            http_probe.get("latency_ms"),
+            http_code,
+            http_msg,
+        )
+        return _persist(result)
+
+    logger.info(
+        "PROXY_CHECK_HTTP_OK proxy_id=%s latency_ms=%s status=%s exit_ip=%s",
+        proxy.id,
+        http_probe.get("latency_ms"),
+        http_probe.get("status_code"),
+        http_probe.get("exit_ip"),
+    )
+
+    # Stage 2: HTTPS to confirm CONNECT + TLS handshake
+    https_probe, https_code, https_msg = _probe_proxy_stage(proxy_url, IPIFY_HTTPS, "proxy_check_https")
+    result["https"] = https_probe
+    if not https_probe.get("ok"):
+        result["error_code"] = https_code
+        result["stage"] = "proxy_check_https"
+        result["error"] = {
+            "code": https_code,
+            "stage": "proxy_check_https",
+            "message": https_msg or https_probe.get("error"),
+        }
+        logger.warning(
+            "PROXY_CHECK_HTTPS_FAIL proxy_id=%s latency_ms=%s code=%s err=%s",
+            proxy.id,
+            https_probe.get("latency_ms"),
+            https_code,
+            https_msg,
+        )
+        return _persist(result)
+
+    logger.info(
+        "PROXY_CHECK_HTTPS_OK proxy_id=%s latency_ms=%s status=%s exit_ip=%s",
+        proxy.id,
+        https_probe.get("latency_ms"),
+        https_probe.get("status_code"),
+        https_probe.get("exit_ip"),
+    )
+
+    # Success
+    result["ok"] = True
+    result["stage"] = "proxy_check_https"
+    result["exit_ip"] = https_probe.get("exit_ip") or http_probe.get("exit_ip")
+    result["elapsed_ms"] = https_probe.get("latency_ms")
+    return _persist(result)
 
 
 def check_all(db: Session) -> List[dict]:

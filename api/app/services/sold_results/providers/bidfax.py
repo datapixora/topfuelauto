@@ -34,6 +34,7 @@ class BidfaxHtmlProvider:
         self,
         url: str,
         proxy_url: Optional[str] = None,
+        proxy_id: Optional[int] = None,
         fetch_mode: str = "http",
         timeout: float = 10.0,
     ) -> FetchDiagnostics:
@@ -55,7 +56,7 @@ class BidfaxHtmlProvider:
         if fetch_mode == "http":
             return self.http_fetcher.fetch(url, proxy_url=proxy_url, timeout=timeout)
         elif fetch_mode == "browser":
-            return self.browser_fetcher.fetch(url, proxy_url=proxy_url)
+            return self.browser_fetcher.fetch(url, proxy_url=proxy_url, proxy_id=proxy_id)
         else:
             raise ValueError(f"Invalid fetch_mode: {fetch_mode}. Must be 'http' or 'browser'.")
 

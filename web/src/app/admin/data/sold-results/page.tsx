@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
@@ -125,15 +125,17 @@ export default function SoldResultsPage() {
     }
   };
 
-  const handleTestParse = async () => {
+  const handleTestParse = async (proxyIdOverride?: number | "") => {
+    if (testing) return;
     setTesting(true);
     setTestResult(null);
+    const proxyChoice = proxyIdOverride === undefined ? selectedProxyId : proxyIdOverride;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 25000);
     try {
       const result = await testBidfaxParse({
         url: testUrl,
-        proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
+        proxy_id: proxyChoice === "" || proxyChoice === undefined ? null : Number(proxyChoice),
         fetch_mode: testFetchMode,
       }, { signal: controller.signal });
       setTestResult(result);
@@ -149,6 +151,20 @@ export default function SoldResultsPage() {
       clearTimeout(timeout);
       setTesting(false);
     }
+  };
+
+  const handleTryNextProxy = () => {
+    if (!proxyOptions.length) return;
+    const currentId = typeof selectedProxyId === "number" ? selectedProxyId : null;
+    const currentIndex = proxyOptions.findIndex((p) => p.id === currentId);
+    const next = proxyOptions[(currentIndex + 1) % proxyOptions.length] || proxyOptions[0];
+    setSelectedProxyId(next?.id ?? "");
+    void handleTestParse(next?.id ?? "");
+  };
+
+  const handleTryWithoutProxy = () => {
+    setSelectedProxyId("");
+    void handleTestParse("");
   };
 
   const statusColor = (status: string) => {
@@ -176,6 +192,18 @@ export default function SoldResultsPage() {
     return "fail";
   })();
 
+  const proxyStage = testResult?.proxy?.stage || testResult?.error?.stage || null;
+  const proxyErrorCode = testResult?.proxy?.error_code || testResult?.error?.code || null;
+  const proxyLatency = testResult?.proxy?.latency_ms ?? null;
+  const httpStatus = testResult?.http?.status || testResult?.status || testResult?.status_code || null;
+  const httpLatency = testResult?.http?.latency_ms ?? null;
+  const primaryMessage =
+    testResult?.error?.message ||
+    testResult?.http?.error ||
+    testResult?.proxy?.error ||
+    testResult?.message ||
+    null;
+
   const copyDebug = () => {
     if (!testResult) return;
     navigator.clipboard?.writeText(JSON.stringify(testResult, null, 2)).catch(() => {});
@@ -192,7 +220,7 @@ export default function SoldResultsPage() {
         </div>
         {anyRunning && (
           <div className="flex items-center gap-2 text-green-300 text-sm">
-            <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse"></span> Running…
+            <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse"></span> Running...
           </div>
         )}
       </header>
@@ -281,6 +309,16 @@ export default function SoldResultsPage() {
                   </span>
                 </div>
                 <div className="flex gap-2">
+                  {testStatus === "fail" && proxyOptions.length > 1 && (
+                    <Button variant="outline" className="h-8 px-2 text-xs" disabled={testing} onClick={handleTryNextProxy}>
+                      Try next proxy
+                    </Button>
+                  )}
+                  {testStatus === "fail" && (
+                    <Button variant="ghost" className="h-8 px-2 text-xs" disabled={testing} onClick={handleTryWithoutProxy}>
+                      Try without proxy
+                    </Button>
+                  )}
                   <Button variant="ghost" className="h-8 px-2 text-sm" onClick={copyDebug}>Copy debug</Button>
                   {testResult.success || testResult.ok ? (
                     <Button className="h-8 px-2 text-sm" onClick={() => { setTargetUrl(testUrl); setLastTestSuccessUrl(testUrl); }}>
@@ -290,13 +328,21 @@ export default function SoldResultsPage() {
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-2 text-sm text-slate-200">
-                <div>HTTP: {testResult.http?.status || testResult.status || testResult.status_code || "n/a"}</div>
+              <div className="grid md:grid-cols-3 gap-2 text-sm text-slate-200">
+                <div>
+                  HTTP: {httpStatus ?? "n/a"} {httpLatency ? `(${httpLatency} ms)` : ""}
+                </div>
                 <div>Fetch Mode: <span className="capitalize">{testResult.debug?.fetch_mode || testResult.fetch_mode || testFetchMode}</span></div>
-                <div>Proxy: {selectedProxyId ? proxyLabel(Number(selectedProxyId)) : "None"}</div>
-                <div>Exit IP: {testResult.proxy?.exit_ip || testResult.proxy_exit_ip || testResult.exit_ip || "—"}</div>
-                <div className="col-span-2">Error: {testResult.http?.error || testResult.error || testResult.message || "—"}</div>
+                <div>Proxy: {testResult.proxy?.proxy_name || proxyLabel(testResult.proxy?.proxy_id || (selectedProxyId === "" ? undefined : Number(selectedProxyId)))} </div>
+                <div>Proxy stage: {proxyStage || "n/a"}</div>
+                <div>Error code: {proxyErrorCode || "-"}</div>
+                <div>Proxy latency: {proxyLatency ? `${proxyLatency} ms` : "-"}</div>
+                <div>Exit IP: {testResult.proxy?.exit_ip || testResult.proxy_exit_ip || testResult.exit_ip || "-"}</div>
+                <div className="md:col-span-3">Message: {primaryMessage || "-"}</div>
               </div>
+
+
+
 
               {Array.isArray(testResult.preview) && testResult.preview.length > 0 && (
                 <div className="bg-slate-800/60 border border-slate-700 rounded p-3">
@@ -443,14 +489,14 @@ export default function SoldResultsPage() {
                         {t.status}
                       </td>
                       <td className="py-2 text-slate-400">{proxyLabel(t.proxy_id)}</td>
-                      <td className="py-2 text-slate-400 text-xs">{t.proxy_exit_ip || "—"}</td>
+                      <td className="py-2 text-slate-400 text-xs">{t.proxy_exit_ip || "-"}</td>
                       <td className="py-2 text-slate-400">{t.attempts}</td>
                       <td className="py-2 text-slate-400">{t.stats?.items_saved || 0}</td>
                       <td className="py-2 text-slate-400 text-xs">
-                        {t.next_check_at ? new Date(t.next_check_at).toLocaleString() : "—"}
+                        {t.next_check_at ? new Date(t.next_check_at).toLocaleString() : "-"}
                       </td>
                       <td className="py-2 text-red-400 text-xs max-w-xs truncate" title={t.last_error || t.proxy_error || ""}>
-                        {t.last_error || t.proxy_error || "—"}
+                        {t.last_error || t.proxy_error || "-"}
                       </td>
                       <td className="py-2">
                         {t.status === "failed" && (
@@ -475,3 +521,4 @@ export default function SoldResultsPage() {
     </div>
   );
 }
+
