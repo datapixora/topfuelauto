@@ -14,7 +14,7 @@ services:
       pip install --upgrade pip
       pip install -r requirements.txt
       PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers python -m playwright install chromium
-    preDeployCommand: cd api && alembic upgrade head
+    preDeployCommand: bash -c 'cd api && (python scripts/terminate_proxies_blockers.py || echo "Blocker termination best-effort completed") && alembic upgrade head'
     startCommand: cd api && exec python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info
     healthCheckPath: /health
     envVars:
