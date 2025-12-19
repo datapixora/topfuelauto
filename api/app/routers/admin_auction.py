@@ -1,12 +1,14 @@
 """Admin API endpoints for auction sold results (Bidfax crawling)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from typing import List, Optional
 from datetime import datetime, timezone
 import time
 import uuid
+import anyio
 
 from app.core.database import get_db
 from app.core.config import get_settings
@@ -17,6 +19,7 @@ from app.models.auction_tracking import AuctionTracking
 from app.schemas import auction as schemas
 from app.workers import auction as tasks
 from app.services import proxy_service
+from .admin_auction_helpers import _test_parse_sync
 import logging
 
 router = APIRouter(prefix="/api/v1/admin/data-engine/bidfax", tags=["admin", "auction"])
@@ -236,9 +239,10 @@ def list_auction_sales(
 
 
 @router.post("/test-parse", response_model=schemas.BidfaxTestParseResponse)
-def test_parse_url(
+async def test_parse_url(
     request: schemas.BidfaxTestParseRequest,
     response: Response,
+    req: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -258,63 +262,60 @@ def test_parse_url(
 
     start_time = time.time()
     request_id = str(uuid.uuid4())
-    provider = BidfaxHtmlProvider()
-    proxy_used = False
-    proxy_name = None
-    proxy_exit_ip = None
-    proxy_error = None
-    proxy_error_code = None
-    proxy_stage = None
-    proxy_url = None
-    chosen_proxy = None
-    proxy_latency_ms = None
-    proxy_id = request.proxy_id
-    if proxy_id in ("", 0):
-        proxy_id = None
-    fetch_mode = request.fetch_mode
+    response.headers["X-Request-Id"] = request_id
+    response.headers["X-Route-Handler"] = "admin_auction.test_parse_url"
+    if settings.git_sha:
+        response.headers["X-Build-Sha"] = settings.git_sha
 
-    def _set_headers():
-        response.headers["X-Request-Id"] = request_id
-        response.headers["X-Route-Handler"] = "admin_auction.test_parse_url"
-        if settings.git_sha:
-            response.headers["X-Build-Sha"] = settings.git_sha
+    async def run_sync_handler():
+        return await anyio.to_thread.run_sync(
+            _test_parse_sync,
+            request,
+            response,
+            db,
+            admin,
+            request_id,
+            start_time,
+        )
 
-    _set_headers()
-
-    def fail_response(code: Optional[str], stage: Optional[str], message: str, http_status: int = 0, latency_ms: int = 0):
-        error_obj = schemas.ErrorInfo(code=code, stage=stage, message=message)
+    try:
+        async with anyio.fail_after(24):
+            return await run_sync_handler()
+    except TimeoutError:
+        latency_ms = int((time.time() - start_time) * 1000)
+        logger.warning(
+            "TEST_PARSE_TIMEOUT",
+            extra={"request_id": request_id, "url": request.url, "fetch_mode": request.fetch_mode},
+        )
         return schemas.BidfaxTestParseResponse(
             ok=False,
-            http=schemas.HttpInfo(
-                status=http_status,
-                error=message,
-                latency_ms=latency_ms,
-            ),
+            http=schemas.HttpInfo(status=504, error="Request timed out", latency_ms=latency_ms),
             proxy=schemas.ProxyInfo(
-                used=proxy_used,
-                proxy_id=chosen_proxy.id if chosen_proxy else proxy_id,
-                proxy_name=proxy_name,
-                exit_ip=proxy_exit_ip,
-                error=message,
-                error_code=code,
-                stage=stage,
-                latency_ms=proxy_latency_ms,
+                used=False,
+                proxy_id=request.proxy_id,
+                proxy_name=None,
+                exit_ip=None,
+                error="Request timed out",
+                error_code="REQUEST_TIMEOUT",
+                stage="overall",
+                latency_ms=None,
             ),
-            parse=schemas.ParseInfo(
-                ok=False,
-                missing=[],
-            ),
+            parse=schemas.ParseInfo(ok=False, missing=[]),
             debug=schemas.DebugInfo(
                 url=request.url,
                 provider="bidfax_html",
-                fetch_mode=fetch_mode,
+                fetch_mode=request.fetch_mode,
                 request_id=request_id,
             ),
-            fetch_mode=fetch_mode,
+            fetch_mode=request.fetch_mode,
             final_url=request.url,
             html="",
-            error=error_obj,
+            error=schemas.ErrorInfo(code="REQUEST_TIMEOUT", stage="overall", message="Request timed out"),
         )
+    except Exception:
+        # Will be handled by global handler but add request_id header for clarity
+        response.headers["X-Request-Id"] = request_id
+        raise
 
     def _healthy_proxies(exclude_ids: Optional[set[int]] = None):
         now = datetime.now(timezone.utc)
