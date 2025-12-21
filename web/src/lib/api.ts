@@ -614,6 +614,8 @@ export async function createBidfaxJob(payload: {
   rpm?: number;
   concurrency?: number;
   strategy_id?: string | null;
+  watch_mode?: boolean;
+  use_2captcha?: boolean;
 }) {
   return apiPost("/admin/data-engine/bidfax/jobs", payload);
 }
@@ -651,6 +653,28 @@ export async function listAuctionSales(params: {
   return apiGet(`/admin/data-engine/bidfax/auction-sales?${qs.toString()}`);
 }
 
-export async function testBidfaxParse(payload: { url: string; proxy_id?: number | null; fetch_mode?: string }, opts?: { signal?: AbortSignal }) {
+export async function testBidfaxParse(
+  payload: {
+    url: string;
+    proxy_id?: number | null;
+    fetch_mode?: string;
+    watch_mode?: boolean;
+    use_2captcha?: boolean;
+  },
+  opts?: { signal?: AbortSignal }
+) {
   return apiPost(`/admin/data-engine/bidfax/test-parse`, payload, { signal: opts?.signal });
+}
+
+export async function getStrategies() {
+  return apiGet<Array<{
+    id: string;
+    label: string;
+    description: string;
+    supports_fetch_modes: string[];
+    supports_watch_mode: boolean;
+    default_fetch_mode: string;
+    supports_2captcha: boolean;
+    notes: string | null;
+  }>>("/admin/data-engine/bidfax/strategies");
 }

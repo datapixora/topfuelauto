@@ -20,15 +20,38 @@ class BidfaxHtmlProvider:
     Supports both HTTP and browser-based fetching for flexibility.
     """
 
-    def __init__(self, rate_limit_per_minute: int = 30):
+    def __init__(
+        self,
+        rate_limit_per_minute: int = 30,
+        watch_mode: bool = False,
+        use_2captcha: bool = False,
+    ):
         """
         Initialize provider with fetchers.
 
         Args:
             rate_limit_per_minute: Maximum requests per minute for HTTP mode (default: 30)
+            watch_mode: Enable visual browser mode (headless=False) for local debugging (default: False)
+            use_2captcha: Enable 2Captcha for challenge solving (default: False)
         """
         self.http_fetcher = HttpFetcher(rate_limit_per_minute=rate_limit_per_minute)
-        self.browser_fetcher = BrowserFetcher(headless=True, timeout_ms=30000)
+
+        # Determine headless mode - watch_mode overrides to show browser
+        headless = not watch_mode
+        # Increase timeout if using 2Captcha (solving takes time)
+        timeout_ms = 60000 if use_2captcha else 30000
+        # Add slow_mo for watch mode (makes actions visible)
+        slow_mo = 150 if watch_mode else 0
+        # Enable trace recording in production
+        record_trace = True  # Always record for debugging
+
+        self.browser_fetcher = BrowserFetcher(
+            headless=headless,
+            timeout_ms=timeout_ms,
+            solve_captcha=use_2captcha,
+            slow_mo=slow_mo,
+            record_trace=record_trace,
+        )
 
     def fetch_list_page(
         self,
@@ -36,6 +59,8 @@ class BidfaxHtmlProvider:
         proxy_url: Optional[str] = None,
         fetch_mode: str = "http",
         timeout: float = 10.0,
+        cookies: Optional[str] = None,
+        tracking_id: Optional[int] = None,
     ) -> FetchDiagnostics:
         """
         Fetch HTML from list page using specified fetch mode.
@@ -45,6 +70,8 @@ class BidfaxHtmlProvider:
             proxy_url: Optional proxy URL
             fetch_mode: Fetch mode to use ("http" or "browser")
             timeout: Request timeout in seconds (HTTP mode only)
+            cookies: Optional cookie string (browser mode only)
+            tracking_id: Optional tracking ID for artifact naming (browser mode only)
 
         Returns:
             FetchDiagnostics with HTML and metadata
@@ -55,7 +82,12 @@ class BidfaxHtmlProvider:
         if fetch_mode == "http":
             return self.http_fetcher.fetch(url, proxy_url=proxy_url, timeout=timeout)
         elif fetch_mode == "browser":
-            return self.browser_fetcher.fetch(url, proxy_url=proxy_url)
+            return self.browser_fetcher.fetch(
+                url,
+                proxy_url=proxy_url,
+                cookies=cookies,
+                tracking_id=tracking_id,
+            )
         else:
             raise ValueError(f"Invalid fetch_mode: {fetch_mode}. Must be 'http' or 'browser'.")
 

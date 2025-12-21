@@ -11,6 +11,7 @@ import {
   retryAuctionTracking,
   testBidfaxParse,
   getProxyOptions,
+  getStrategies,
 } from "../../../../lib/api";
 import type { AuctionTracking } from "../../../../lib/types";
 
@@ -24,20 +25,43 @@ type ProxyOption = {
   last_exit_ip?: string | null;
 };
 
+type Strategy = {
+  id: string;
+  label: string;
+  description: string;
+  supports_fetch_modes: string[];
+  supports_watch_mode: boolean;
+  default_fetch_mode: string;
+  supports_2captcha: boolean;
+  notes: string | null;
+};
+
 export default function SoldResultsPage() {
   const [trackings, setTrackings] = useState<AuctionTracking[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Detect local environment
+  const isLocalEnv = typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname.includes('.local')
+  );
+
   // Proxy
   const [proxyOptions, setProxyOptions] = useState<ProxyOption[]>([]);
   const [selectedProxyId, setSelectedProxyId] = useState<number | "">("");
   const [proxyWarningDismissed, setProxyWarningDismissed] = useState(false);
 
+  // Strategies
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+
   // Test parse state
   const [testUrl, setTestUrl] = useState("");
   const [testFetchMode, setTestFetchMode] = useState<"http" | "browser">("browser");
+  const [testWatchMode, setTestWatchMode] = useState(false);
+  const [testUse2Captcha, setTestUse2Captcha] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
   const [lastTestSuccessUrl, setLastTestSuccessUrl] = useState<string | null>(null);
@@ -51,7 +75,9 @@ export default function SoldResultsPage() {
   const [batchSize, setBatchSize] = useState(2);
   const [rpm, setRpm] = useState(30);
   const [concurrency, setConcurrency] = useState(1);
-  const [strategyId, setStrategyId] = useState("default");
+  const [strategyId, setStrategyId] = useState("bidfax_default");
+  const [watchMode, setWatchMode] = useState(false);
+  const [use2Captcha, setUse2Captcha] = useState(false);
   const [creating, setCreating] = useState(false);
 
   // Retry button state
@@ -79,9 +105,19 @@ export default function SoldResultsPage() {
     }
   };
 
+  const loadStrategies = async () => {
+    try {
+      const data = await getStrategies();
+      setStrategies(data || []);
+    } catch (e: any) {
+      console.error("Failed to load strategies", e);
+    }
+  };
+
   useEffect(() => {
     void loadTrackings();
     void loadProxyOptions();
+    void loadStrategies();
   }, []);
 
   const handleCreateJob = async (e: React.FormEvent) => {
@@ -99,6 +135,8 @@ export default function SoldResultsPage() {
         rpm,
         concurrency,
         strategy_id: strategyId,
+        watch_mode: watchMode,
+        use_2captcha: use2Captcha,
       });
 
       setTargetUrl("");
@@ -135,6 +173,8 @@ export default function SoldResultsPage() {
         url: testUrl,
         proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
         fetch_mode: testFetchMode,
+        watch_mode: testWatchMode,
+        use_2captcha: testUse2Captcha,
       }, { signal: controller.signal });
       setTestResult(result);
       if (result?.success || result?.ok) {
@@ -187,8 +227,22 @@ export default function SoldResultsPage() {
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-100">Sold Results (Bidfax)</h1>
-          <p className="text-sm text-slate-400">Wizard to test and launch Bidfax crawls.</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold text-slate-100">Sold Results (Bidfax)</h1>
+            {isLocalEnv ? (
+              <span className="px-2 py-1 text-xs font-medium bg-blue-900/50 text-blue-300 border border-blue-700 rounded">
+                LOCAL DEV
+              </span>
+            ) : (
+              <span className="px-2 py-1 text-xs font-medium bg-purple-900/50 text-purple-300 border border-purple-700 rounded">
+                PRODUCTION
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-400">
+            Wizard to test and launch Bidfax crawls.
+            {isLocalEnv && <span className="text-blue-400 ml-2">Watch mode available</span>}
+          </p>
         </div>
         {anyRunning && (
           <div className="flex items-center gap-2 text-green-300 text-sm">
@@ -265,6 +319,45 @@ export default function SoldResultsPage() {
             <Button onClick={handleTestParse} disabled={testing || !testUrl}>
               {testing ? "Testing..." : "Test"}
             </Button>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex gap-4">
+              {isLocalEnv && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="test-watch-mode"
+                    checked={testWatchMode}
+                    onChange={(e) => setTestWatchMode(e.target.checked)}
+                  />
+                  <label htmlFor="test-watch-mode" className="text-sm text-slate-300">
+                    Watch browser
+                  </label>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="test-use-2captcha"
+                  checked={testUse2Captcha}
+                  onChange={(e) => setTestUse2Captcha(e.target.checked)}
+                />
+                <label htmlFor="test-use-2captcha" className="text-sm text-slate-300">
+                  Use 2Captcha
+                </label>
+              </div>
+            </div>
+            {isLocalEnv && testWatchMode && (
+              <div className="bg-blue-900/30 border border-blue-700 text-blue-200 text-xs p-2 rounded">
+                Watch mode enabled: Browser will open visibly with 150ms slow motion. Only works in local dev.
+              </div>
+            )}
+            {!isLocalEnv && (
+              <div className="bg-slate-800/60 border border-slate-700 text-slate-400 text-xs p-2 rounded">
+                Running in production mode. Watch browser disabled. Traces will be recorded for debugging.
+              </div>
+            )}
           </div>
 
           {testResult && (
@@ -392,15 +485,66 @@ export default function SoldResultsPage() {
                   value={strategyId}
                   onChange={(e) => setStrategyId(e.target.value)}
                 >
-                  <option value="default">Default Bidfax Strategy</option>
+                  {strategies.length === 0 ? (
+                    <option value="bidfax_default">Loading strategies...</option>
+                  ) : (
+                    strategies.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))
+                  )}
                 </select>
-                <p className="text-xs text-slate-500">TODO: load strategies from API when available.</p>
+                {strategies.find((s) => s.id === strategyId)?.notes && (
+                  <p className="text-xs text-slate-500">
+                    {strategies.find((s) => s.id === strategyId)?.notes}
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="space-y-2">
               <Label>Proxy (uses global selection)</Label>
               <Input disabled value={selectedProxyId ? proxyLabel(Number(selectedProxyId)) : "None"} />
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <div className="flex gap-4">
+                {isLocalEnv && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="crawl-watch-mode"
+                      checked={watchMode}
+                      onChange={(e) => setWatchMode(e.target.checked)}
+                    />
+                    <label htmlFor="crawl-watch-mode" className="text-sm text-slate-300">
+                      Watch browser
+                    </label>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="crawl-use-2captcha"
+                    checked={use2Captcha}
+                    onChange={(e) => setUse2Captcha(e.target.checked)}
+                  />
+                  <label htmlFor="crawl-use-2captcha" className="text-sm text-slate-300">
+                    Use 2Captcha
+                  </label>
+                </div>
+              </div>
+              {isLocalEnv && watchMode && (
+                <div className="bg-blue-900/30 border border-blue-700 text-blue-200 text-xs p-2 rounded">
+                  Watch mode: Browser will open visibly with slow motion. Great for debugging!
+                </div>
+              )}
+              {!isLocalEnv && (
+                <div className="bg-slate-800/60 border border-slate-700 text-slate-400 text-xs p-2 rounded">
+                  Production mode: Browser runs headless. Traces saved to api/artifacts/traces/ for debugging.
+                </div>
+              )}
             </div>
 
             <Button type="submit" disabled={creating || (!targetUrl && !lastTestSuccessUrl)}>

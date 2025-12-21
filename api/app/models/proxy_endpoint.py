@@ -22,5 +22,11 @@ class ProxyEndpoint(Base):
     last_exit_ip = Column(String(64), nullable=True)
     last_error = Column(Text, nullable=True)
     unhealthy_until = Column(DateTime, nullable=True)
+
+    # Health tracking for banning
+    consecutive_failures = Column(Integer, nullable=False, default=0)
+    banned_until = Column(DateTime, nullable=True)
+    last_failure_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

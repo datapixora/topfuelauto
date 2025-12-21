@@ -35,3 +35,12 @@ class FetchDiagnostics:
 
     browser_version: Optional[str] = None
     """Browser version string (for browser mode only)"""
+
+    cookies_used: Optional[str] = None
+    """Cookies used in request (for verification)"""
+
+    cloudflare_bypassed: bool = False
+    """Whether Cloudflare challenge was bypassed"""
+
+    artifact_path: Optional[str] = None
+    """Path to saved trace/video artifact (for production debugging)"""

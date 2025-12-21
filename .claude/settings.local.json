@@ -16,7 +16,11 @@
       "Bash(git reset:*)",
       "Bash(git rev-parse:*)",
       "Bash(python -m alembic:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(powershell -Command \"(Get-Content ''C:\\Users\\Mostafa\\TopFuelAuto\\TODO.md'' | Measure-Object -Line).Lines\")",
+      "Bash(git checkout:*)",
+      "Bash(pip install:*)",
+      "Bash(cat:*)"
     ]
   }
 }

@@ -27,6 +27,12 @@ def enqueue_bidfax_crawl(
     schedule_interval_minutes: int = 60,
     proxy_id: int = None,
     fetch_mode: str = "http",
+    strategy_id: str = "bidfax_default",
+    watch_mode: bool = False,
+    use_2captcha: bool = False,
+    batch_size: int = 2,
+    rpm: int = 30,
+    concurrency: int = 1,
 ):
     """
     Create auction_tracking rows for each page and enqueue them.
@@ -42,6 +48,12 @@ def enqueue_bidfax_crawl(
         schedule_interval_minutes: Interval between scheduled runs
         proxy_id: Optional proxy ID from proxy pool
         fetch_mode: Fetch mode ('http' or 'browser')
+        strategy_id: Scraping strategy identifier (default: 'bidfax_default')
+        watch_mode: Enable visual browser mode for local debugging (default: False)
+        use_2captcha: Enable 2Captcha for challenge solving (default: False)
+        batch_size: Batch size for parallel processing (default: 2)
+        rpm: Requests per minute rate limit (default: 30)
+        concurrency: Concurrent worker threads (default: 1)
 
     Returns:
         Dictionary with created count and configuration
@@ -71,9 +83,15 @@ def enqueue_bidfax_crawl(
                 existing.make = make
                 existing.model = model
                 existing.proxy_id = proxy_id
-                # Preserve or update fetch_mode in stats
+                # Update strategy and config in stats
                 existing.stats = existing.stats or {}
                 existing.stats["fetch_mode"] = fetch_mode
+                existing.stats["strategy_id"] = strategy_id
+                existing.stats["watch_mode"] = watch_mode
+                existing.stats["use_2captcha"] = use_2captcha
+                existing.stats["batch_size"] = batch_size
+                existing.stats["rpm"] = rpm
+                existing.stats["concurrency"] = concurrency
                 db.add(existing)
                 logger.info(f"Updated existing tracking for {page_url}")
             else:
@@ -92,7 +110,15 @@ def enqueue_bidfax_crawl(
                     status="pending",
                     next_check_at=next_check,
                     attempts=0,
-                    stats={"fetch_mode": fetch_mode},
+                    stats={
+                        "fetch_mode": fetch_mode,
+                        "strategy_id": strategy_id,
+                        "watch_mode": watch_mode,
+                        "use_2captcha": use_2captcha,
+                        "batch_size": batch_size,
+                        "rpm": rpm,
+                        "concurrency": concurrency,
+                    },
                     proxy_id=proxy_id,
                 )
                 db.add(tracking)
@@ -189,8 +215,32 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
         tracking.attempts += 1
         db.commit()
 
-        # Initialize provider and ingest service
-        provider = BidfaxHtmlProvider(rate_limit_per_minute=30)
+        # Extract strategy parameters from tracking.stats
+        strategy_id = tracking.stats.get("strategy_id", "bidfax_default") if tracking.stats else "bidfax_default"
+        watch_mode = tracking.stats.get("watch_mode", False) if tracking.stats else False
+        use_2captcha = tracking.stats.get("use_2captcha", False) if tracking.stats else False
+        rpm = tracking.stats.get("rpm", 30) if tracking.stats else 30
+
+        # Validate strategy
+        from app.services.sold_results.strategy_registry import get_strategy_metadata
+        strategy = get_strategy_metadata(strategy_id)
+        if not strategy:
+            logger.warning(f"Unknown strategy '{strategy_id}', falling back to 'bidfax_default'")
+            strategy_id = "bidfax_default"
+            strategy = get_strategy_metadata(strategy_id)
+
+        # Log strategy selection
+        logger.info(
+            f"Using strategy: {strategy.label} (id={strategy_id}, watch_mode={watch_mode}, "
+            f"use_2captcha={use_2captcha}, rpm={rpm})"
+        )
+
+        # Initialize provider with strategy parameters
+        provider = BidfaxHtmlProvider(
+            rate_limit_per_minute=rpm,
+            watch_mode=watch_mode,
+            use_2captcha=use_2captcha,
+        )
         ingest_service = SoldResultsIngestService()
 
         proxy_url = None
@@ -247,6 +297,7 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
                 url=tracking.target_url,
                 proxy_url=proxy_url,
                 fetch_mode=fetch_mode,
+                tracking_id=tracking.id,
             )
 
             # Update diagnostics from fetch result
@@ -273,7 +324,12 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
                 "new_records": ingest_stats["inserted"],
                 "updated_records": ingest_stats["updated"],
                 "skipped": ingest_stats["skipped"],
-                "fetch_mode": fetch_mode,  # Preserve fetch_mode
+                "fetch_mode": fetch_mode,
+                "strategy_id": strategy_id,
+                "watch_mode": watch_mode,
+                "use_2captcha": use_2captcha,
+                "rpm": rpm,
+                "artifact_path": fetch_result.artifact_path,
             }
             tracking.last_error = None
             tracking.proxy_error = None

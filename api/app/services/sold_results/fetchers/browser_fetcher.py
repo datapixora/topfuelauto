@@ -1,5 +1,6 @@
 """Browser-based fetcher using Playwright Chromium."""
 
+import os
 import time
 import logging
 from typing import Optional
@@ -18,24 +19,62 @@ class BrowserFetcher:
     Supports proxy and captures detailed diagnostics.
     """
 
-    def __init__(self, headless: bool = True, timeout_ms: int = 30000):
+    def __init__(
+        self,
+        headless: bool = True,
+        timeout_ms: int = 30000,
+        solve_captcha: bool = True,
+        slow_mo: int = 0,
+        record_trace: bool = False,
+    ):
         """
         Initialize browser fetcher.
 
         Args:
             headless: Run browser in headless mode (default: True)
             timeout_ms: Page load timeout in milliseconds (default: 30000)
+            solve_captcha: Attempt to solve CAPTCHA challenges (default: True)
+            slow_mo: Slow down operations by specified ms (default: 0, watch mode uses 150)
+            record_trace: Enable trace recording for production debugging (default: False)
         """
+        # Environment detection
+        app_env = os.getenv('APP_ENV', 'development').lower()
+        is_production = app_env == 'production'
+
+        # Watch mode safety: force headless in production
+        if not headless and is_production:
+            logger.warning(
+                "Watch mode (headless=False) requested in production environment. "
+                "Forcing headless=True for security."
+            )
+            headless = True
+            slow_mo = 0  # Disable slowMo in production
+
         self.headless = headless
         self.timeout_ms = timeout_ms
+        self.slow_mo = slow_mo
+        self.record_trace = record_trace or (is_production and not headless)  # Auto-enable trace in prod
+        self.is_production = is_production
+        self.solve_captcha = solve_captcha and os.getenv('CAPTCHA_SOLVER_ENABLED', 'false').lower() == 'true'
+        self.twocaptcha_api_key = os.getenv('TWOCAPTCHA_API_KEY')
+        self.cloudflare_timeout = int(os.getenv('CLOUDFLARE_WAIT_TIMEOUT', '60'))
+        self.cloudflare_max_retries = int(os.getenv('CLOUDFLARE_MAX_RETRIES', '2'))
 
-    def fetch(self, url: str, proxy_url: Optional[str] = None) -> FetchDiagnostics:
+    def fetch(
+        self,
+        url: str,
+        proxy_url: Optional[str] = None,
+        cookies: Optional[str] = None,
+        tracking_id: Optional[int] = None,
+    ) -> FetchDiagnostics:
         """
         Fetch HTML using Playwright Chromium.
 
         Args:
             url: Target URL to fetch
             proxy_url: Optional proxy URL (e.g., http://user:pass@host:port)
+            cookies: Optional cookie string (e.g., "name1=value1; name2=value2")
+            tracking_id: Optional tracking ID for artifact naming
 
         Returns:
             FetchDiagnostics with HTML and metadata
@@ -48,6 +87,7 @@ class BrowserFetcher:
         browser: Optional[Browser] = None
         context: Optional[BrowserContext] = None
         page: Optional[Page] = None
+        artifact_path: Optional[str] = None
 
         try:
             with sync_playwright() as p:
@@ -57,15 +97,22 @@ class BrowserFetcher:
                 if proxy_url:
                     proxy_config = self._parse_proxy_url(proxy_url)
 
-                # Launch browser
-                browser = p.chromium.launch(
-                    headless=self.headless,
-                    args=[
+                # Launch browser with slow_mo if enabled
+                launch_options = {
+                    'headless': self.headless,
+                    'args': [
                         '--disable-blink-features=AutomationControlled',
                         '--disable-dev-shm-usage',
                         '--no-sandbox',
                     ]
-                )
+                }
+
+                # Add slow_mo for watch mode
+                if self.slow_mo > 0:
+                    launch_options['slow_mo'] = self.slow_mo
+                    logger.info(f"Browser slow_mo enabled: {self.slow_mo}ms")
+
+                browser = p.chromium.launch(**launch_options)
 
                 # Create context with proxy
                 context = browser.new_context(
@@ -75,9 +122,24 @@ class BrowserFetcher:
                     locale='en-US',
                 )
 
+                # Start tracing if enabled (production debugging)
+                if self.record_trace and tracking_id:
+                    trace_dir = os.path.join('api', 'artifacts', 'traces', str(tracking_id))
+                    os.makedirs(trace_dir, exist_ok=True)
+                    artifact_path = os.path.join(trace_dir, 'trace.zip')
+
+                    context.tracing.start(screenshots=True, snapshots=True, sources=True)
+                    logger.info(f"Trace recording started, will save to: {artifact_path}")
+
                 # Create page and navigate
                 page = context.new_page()
                 page.set_default_timeout(self.timeout_ms)
+
+                # Inject cookies if provided
+                if cookies:
+                    cookie_list = self._parse_cookies(url, cookies)
+                    context.add_cookies(cookie_list)
+                    logger.info(f"Injected {len(cookie_list)} cookies")
 
                 response = page.goto(
                     url,
@@ -88,21 +150,50 @@ class BrowserFetcher:
                 if not response:
                     raise PlaywrightError("Navigation failed: no response")
 
+                # Get initial HTML
+                html = page.content()
+
+                # Detect Cloudflare challenge
+                cloudflare_detected = self._has_cloudflare_challenge(html)
+
+                # Attempt to solve CAPTCHA if detected and enabled
+                if cloudflare_detected and self.solve_captcha and self.twocaptcha_api_key:
+                    logger.warning(f"Cloudflare challenge detected, attempting to solve with 2Captcha...")
+                    solved = self._solve_cloudflare_turnstile(page, url)
+                    if solved:
+                        # Refresh HTML after solving
+                        html = page.content()
+                        logger.info("Cloudflare challenge solved successfully")
+                    else:
+                        logger.error("Failed to solve Cloudflare challenge")
+
                 # Capture diagnostics
                 status_code = response.status
                 final_url = page.url
-                html = page.content()
                 latency_ms = int((time.time() - start_time) * 1000)
                 browser_version = browser.version
+
+                # Detect Cloudflare bypass (recheck after potential solving)
+                cloudflare_bypassed = self._detect_cloudflare_bypass(html)
 
                 # Try to get exit IP if proxy was used
                 proxy_exit_ip = None
                 if proxy_url:
                     proxy_exit_ip = self._get_exit_ip(page)
 
+                # Stop tracing and save artifact
+                if self.record_trace and tracking_id and artifact_path:
+                    try:
+                        context.tracing.stop(path=artifact_path)
+                        logger.info(f"Trace saved to: {artifact_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to save trace: {e}")
+                        artifact_path = None
+
                 logger.info(
                     f"Browser fetch completed: {url} -> {status_code} "
-                    f"({latency_ms}ms, proxy={bool(proxy_url)})"
+                    f"({latency_ms}ms, proxy={bool(proxy_url)}, cf_bypass={cloudflare_bypassed}, "
+                    f"artifact={bool(artifact_path)})"
                 )
 
                 return FetchDiagnostics(
@@ -114,6 +205,9 @@ class BrowserFetcher:
                     error=None,
                     proxy_exit_ip=proxy_exit_ip,
                     browser_version=browser_version,
+                    cookies_used=cookies if cookies else None,
+                    cloudflare_bypassed=cloudflare_bypassed,
+                    artifact_path=artifact_path,
                 )
 
         except PlaywrightError as e:
@@ -134,6 +228,8 @@ class BrowserFetcher:
                 error=error_msg,
                 proxy_exit_ip=None,
                 browser_version=None,
+                cookies_used=None,
+                cloudflare_bypassed=False,
             )
 
         except Exception as e:
@@ -150,6 +246,8 @@ class BrowserFetcher:
                 error=error_msg,
                 proxy_exit_ip=None,
                 browser_version=None,
+                cookies_used=None,
+                cloudflare_bypassed=False,
             )
 
         finally:
@@ -211,3 +309,243 @@ class BrowserFetcher:
             logger.warning(f"Failed to get exit IP: {e}")
 
         return None
+
+    def _parse_cookies(self, url: str, cookie_string: str) -> list:
+        """
+        Parse cookie string into Playwright cookie format.
+
+        Args:
+            url: Target URL (for domain extraction)
+            cookie_string: Cookie string (e.g., "name1=value1; name2=value2")
+
+        Returns:
+            List of Playwright cookie dicts
+        """
+        from urllib.parse import urlparse
+
+        parsed_url = urlparse(url)
+        domain = parsed_url.hostname
+
+        cookies = []
+        for cookie in cookie_string.split(';'):
+            cookie = cookie.strip()
+            if '=' not in cookie:
+                continue
+
+            name, value = cookie.split('=', 1)
+            cookies.append({
+                'name': name.strip(),
+                'value': value.strip(),
+                'domain': domain,
+                'path': '/',
+            })
+
+        return cookies
+
+    def _has_cloudflare_challenge(self, html: str) -> bool:
+        """
+        Detect if page contains an active Cloudflare challenge.
+
+        Args:
+            html: Page HTML content
+
+        Returns:
+            True if Cloudflare challenge detected, False otherwise
+        """
+        html_lower = html.lower()
+
+        # Strong indicators of active Cloudflare challenge
+        challenge_indicators = [
+            'checking your browser',
+            'just a moment',
+            'cf-chl-bypass',
+            'cf-challenge-running',
+            'challenge-platform',
+        ]
+
+        for indicator in challenge_indicators:
+            if indicator in html_lower:
+                logger.info(f"Cloudflare challenge indicator found: '{indicator}'")
+                return True
+
+        return False
+
+    def _solve_cloudflare_turnstile(self, page: Page, url: str) -> bool:
+        """
+        Solve Cloudflare Turnstile challenge using 2Captcha.
+
+        Args:
+            page: Playwright page with Cloudflare challenge
+            url: Current page URL
+
+        Returns:
+            True if solved successfully, False otherwise
+        """
+        try:
+            from twocaptcha import TwoCaptcha
+
+            # Initialize 2Captcha solver
+            solver = TwoCaptcha(self.twocaptcha_api_key)
+
+            # Extract Turnstile sitekey from page
+            sitekey = self._extract_turnstile_sitekey(page)
+            if not sitekey:
+                logger.error("Could not extract Turnstile sitekey from page")
+                return False
+
+            logger.info(f"Extracted Turnstile sitekey: {sitekey}")
+
+            # Submit challenge to 2Captcha
+            logger.info("Submitting Turnstile challenge to 2Captcha...")
+            start_time = time.time()
+
+            result = solver.turnstile(
+                sitekey=sitekey,
+                url=url,
+                timeout=self.cloudflare_timeout,
+            )
+
+            solve_time = int(time.time() - start_time)
+            logger.info(f"2Captcha solved challenge in {solve_time}s, token: {result['code'][:30]}...")
+
+            # Inject solution token into page
+            token = result['code']
+            injection_script = f"""
+                // Find Turnstile response input
+                const responseInput = document.querySelector('[name="cf-turnstile-response"]');
+                if (responseInput) {{
+                    responseInput.value = '{token}';
+
+                    // Trigger form submission or callback
+                    const form = responseInput.closest('form');
+                    if (form) {{
+                        form.submit();
+                    }} else {{
+                        // Try to trigger Turnstile callback
+                        if (window.turnstile && window.turnstile.reset) {{
+                            window.turnstile.reset();
+                        }}
+                    }}
+                }}
+            """
+
+            page.evaluate(injection_script)
+            logger.info("Injected 2Captcha solution token")
+
+            # Wait for page to process solution
+            time.sleep(3)
+            page.wait_for_load_state('domcontentloaded', timeout=10000)
+
+            # Check if challenge was bypassed
+            new_html = page.content()
+            bypassed = not self._has_cloudflare_challenge(new_html)
+
+            if bypassed:
+                logger.info("Cloudflare Turnstile challenge successfully bypassed!")
+                return True
+            else:
+                logger.warning("Challenge still present after solving (token may have expired)")
+                return False
+
+        except ImportError:
+            logger.error("2captcha-python not installed. Run: pip install 2captcha-python")
+            return False
+
+        except Exception as e:
+            logger.error(f"Error solving Cloudflare Turnstile: {e}", exc_info=True)
+            return False
+
+    def _extract_turnstile_sitekey(self, page: Page) -> Optional[str]:
+        """
+        Extract Cloudflare Turnstile sitekey from page.
+
+        Args:
+            page: Playwright page
+
+        Returns:
+            Sitekey string, or None if not found
+        """
+        try:
+            # Method 1: Look for data-sitekey attribute
+            sitekey = page.evaluate("""
+                () => {
+                    const el = document.querySelector('[data-sitekey]');
+                    return el ? el.getAttribute('data-sitekey') : null;
+                }
+            """)
+
+            if sitekey:
+                return sitekey
+
+            # Method 2: Look in iframe src
+            sitekey = page.evaluate("""
+                () => {
+                    const iframe = document.querySelector('iframe[src*="challenges.cloudflare.com"]');
+                    if (iframe) {
+                        const match = iframe.src.match(/sitekey=([^&]+)/);
+                        return match ? match[1] : null;
+                    }
+                    return null;
+                }
+            """)
+
+            if sitekey:
+                return sitekey
+
+            # Method 3: Look in page source
+            html = page.content()
+            import re
+            match = re.search(r'data-sitekey=["\']([^"\']+)["\']', html)
+            if match:
+                return match.group(1)
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error extracting Turnstile sitekey: {e}")
+            return None
+
+    def _detect_cloudflare_bypass(self, html: str) -> bool:
+        """
+        Detect if Cloudflare challenge was successfully bypassed.
+
+        Args:
+            html: Page HTML content
+
+        Returns:
+            True if bypassed (no challenge detected), False if challenge present
+        """
+        html_lower = html.lower()
+
+        # Cloudflare challenge indicators
+        challenge_indicators = [
+            'checking your browser',
+            'just a moment',
+            'cloudflare',
+            'cf-chl',
+            'cf-challenge',
+            'turnstile',
+            'ray id',  # Cloudflare error pages
+        ]
+
+        # Check for challenge indicators
+        for indicator in challenge_indicators:
+            if indicator in html_lower:
+                logger.warning(f"Cloudflare challenge detected: '{indicator}' found in HTML")
+                return False
+
+        # Success indicators (page loaded normally)
+        success_indicators = [
+            '<title>',
+            '<body',
+            'bidfax',  # Site-specific
+        ]
+
+        has_success = any(indicator in html_lower for indicator in success_indicators)
+
+        if has_success and len(html) > 5000:  # Normal page is usually >5KB
+            logger.info("Cloudflare bypass successful (normal page content detected)")
+            return True
+
+        logger.warning(f"Cloudflare status unclear (HTML length: {len(html)})")
+        return False

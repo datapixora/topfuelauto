@@ -64,6 +64,12 @@ def create_bidfax_job(
             schedule_interval_minutes=job.schedule_interval_minutes,
             proxy_id=proxy_id,
             fetch_mode=job.fetch_mode,
+            strategy_id=job.strategy_id,
+            watch_mode=job.watch_mode,
+            use_2captcha=job.use_2captcha,
+            batch_size=job.batch_size,
+            rpm=job.rpm,
+            concurrency=job.concurrency,
         )
 
         logger.info(
@@ -84,6 +90,56 @@ def create_bidfax_job(
             status_code=503,
             detail=f"Failed to enqueue job. Celery worker may not be running: {str(e)}"
         )
+
+
+@router.get("/strategies", response_model=List[schemas.StrategyResponse])
+def list_strategies(
+    admin: User = Depends(get_current_admin),
+):
+    """
+    List available scraping strategies.
+
+    Returns metadata for all registered strategies including:
+    - Strategy ID and label
+    - Supported fetch modes (http/browser)
+    - Watch mode availability (local dev only)
+    - 2Captcha support
+    - Usage notes
+
+    Example response:
+    ```json
+    [
+      {
+        "id": "bidfax_browser",
+        "label": "Bidfax Browser (Robust)",
+        "description": "Playwright browser with cookie and 2Captcha support",
+        "supports_fetch_modes": ["browser"],
+        "supports_watch_mode": true,
+        "default_fetch_mode": "browser",
+        "supports_2captcha": true,
+        "notes": "Slower but bypasses Cloudflare. Supports visual watch mode in local dev."
+      }
+    ]
+    ```
+    """
+    from app.services.sold_results.strategy_registry import list_strategies as get_all_strategies
+
+    strategies = get_all_strategies()
+
+    # Convert dataclass to dict for Pydantic
+    return [
+        schemas.StrategyResponse(
+            id=s.id,
+            label=s.label,
+            description=s.description,
+            supports_fetch_modes=s.supports_fetch_modes,
+            supports_watch_mode=s.supports_watch_mode,
+            default_fetch_mode=s.default_fetch_mode,
+            supports_2captcha=s.supports_2captcha,
+            notes=s.notes,
+        )
+        for s in strategies
+    ]
 
 
 @router.get("/tracking", response_model=dict)
@@ -310,22 +366,31 @@ def test_parse_url(
                 "url": request.url,
                 "fetch_mode": request.fetch_mode,
                 "proxy_id": request.proxy_id,
+                "watch_mode": request.watch_mode,
+                "use_2captcha": request.use_2captcha,
             },
         )
-        # Fetch HTML using specified mode
-        provider = BidfaxHtmlProvider()
+        # Fetch HTML using specified mode with strategy parameters
+        provider = BidfaxHtmlProvider(
+            watch_mode=request.watch_mode,
+            use_2captcha=request.use_2captcha,
+        )
         logger.info(
             "Bidfax fetch started",
             extra={
                 "url": request.url,
                 "fetch_mode": request.fetch_mode,
                 "proxy_id": request.proxy_id,
+                "has_cookies": bool(request.cookies),
+                "watch_mode": request.watch_mode,
+                "use_2captcha": request.use_2captcha,
             },
         )
         fetch_result = provider.fetch_list_page(
             url=request.url,
             proxy_url=proxy_url,
             fetch_mode=request.fetch_mode,
+            cookies=request.cookies,
         )
 
         # Update diagnostics from fetch result
@@ -385,6 +450,8 @@ def test_parse_url(
                 url=request.url,
                 provider="bidfax_html",
                 fetch_mode=request.fetch_mode,
+                cloudflare_bypassed=fetch_result.cloudflare_bypassed,
+                cookies_used=bool(fetch_result.cookies_used),
             ),
             fetch_mode=request.fetch_mode,
             final_url=fetch_result.final_url,
@@ -425,6 +492,8 @@ def test_parse_url(
                 url=request.url,
                 provider="bidfax_html",
                 fetch_mode=request.fetch_mode,
+                cloudflare_bypassed=fetch_result.cloudflare_bypassed if 'fetch_result' in locals() else False,
+                cookies_used=bool(fetch_result.cookies_used) if 'fetch_result' in locals() else False,
             ),
             fetch_mode=request.fetch_mode,
             final_url=fetch_result.final_url if 'fetch_result' in locals() else request.url,
@@ -463,6 +532,8 @@ def test_parse_url(
                 url=request.url,
                 provider="bidfax_html",
                 fetch_mode=request.fetch_mode,
+                cloudflare_bypassed=fetch_result.cloudflare_bypassed if 'fetch_result' in locals() else False,
+                cookies_used=bool(fetch_result.cookies_used) if 'fetch_result' in locals() else False,
             ),
             fetch_mode=request.fetch_mode,
             final_url=fetch_result.final_url if 'fetch_result' in locals() else request.url,

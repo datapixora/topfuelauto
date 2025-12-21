@@ -109,13 +109,28 @@ def check_proxy(db: Session, proxy: ProxyEndpoint) -> dict:
     except Exception as e:
         result["error"] = str(e)
 
-    # persist
+    # Update health tracking
     proxy.last_check_at = datetime.utcnow()
     proxy.last_check_status = "ok" if result.get("ok") else "failed"
     proxy.last_exit_ip = result.get("exit_ip")
     proxy.last_error = result.get("error")
-    if not result.get("ok"):
+
+    if result.get("ok"):
+        # Success: reset health counters
+        proxy.consecutive_failures = 0
+        proxy.unhealthy_until = None
+        proxy.last_failure_at = None
+    else:
+        # Failure: increment counter and apply banning logic
+        proxy.consecutive_failures = (proxy.consecutive_failures or 0) + 1
+        proxy.last_failure_at = datetime.utcnow()
         proxy.unhealthy_until = datetime.utcnow() + timedelta(minutes=5)
+
+        # Ban proxy if failures exceed threshold
+        if proxy.consecutive_failures >= 3:
+            # Ban for 30 minutes after 3 consecutive failures
+            proxy.banned_until = datetime.utcnow() + timedelta(minutes=30)
+
     db.add(proxy)
     db.commit()
     db.refresh(proxy)
@@ -143,7 +158,8 @@ def select_proxy_for_run(db: Session) -> Optional[ProxyEndpoint]:
     now = datetime.utcnow()
     enabled = db.query(ProxyEndpoint).filter(
         ProxyEndpoint.is_enabled.is_(True),
-        (ProxyEndpoint.unhealthy_until.is_(None) | (ProxyEndpoint.unhealthy_until <= now))
+        (ProxyEndpoint.unhealthy_until.is_(None) | (ProxyEndpoint.unhealthy_until <= now)),
+        (ProxyEndpoint.banned_until.is_(None) | (ProxyEndpoint.banned_until <= now))  # Exclude banned proxies
     ).all()
     if not enabled:
         return None
@@ -170,11 +186,57 @@ def select_proxy_for_run(db: Session) -> Optional[ProxyEndpoint]:
 
 
 def record_proxy_failure(db: Session, proxy: ProxyEndpoint, error: str) -> None:
-    proxy.last_check_at = datetime.utcnow()
+    """Record a proxy failure and apply banning logic if threshold exceeded."""
+    now = datetime.utcnow()
+    proxy.last_check_at = now
     proxy.last_check_status = "failed"
     proxy.last_error = error[:500]
+    proxy.last_failure_at = now
+
+    # Increment consecutive failures
+    proxy.consecutive_failures = (proxy.consecutive_failures or 0) + 1
+
+    # Set temporary unhealthy period
+    proxy.unhealthy_until = now + timedelta(minutes=5)
+
+    # Ban proxy if failures exceed threshold
+    if proxy.consecutive_failures >= 3:
+        # Ban for 30 minutes after 3 consecutive failures
+        proxy.banned_until = now + timedelta(minutes=30)
+
     db.add(proxy)
     db.commit()
+
+
+def ban_proxy(db: Session, proxy_id: int, duration_minutes: int = 60) -> Optional[ProxyEndpoint]:
+    """Manually ban a proxy for a specified duration."""
+    proxy = get_proxy(db, proxy_id)
+    if not proxy:
+        return None
+
+    proxy.banned_until = datetime.utcnow() + timedelta(minutes=duration_minutes)
+    proxy.consecutive_failures = 3  # Mark as if it failed threshold
+    db.add(proxy)
+    db.commit()
+    db.refresh(proxy)
+    return proxy
+
+
+def unban_proxy(db: Session, proxy_id: int) -> Optional[ProxyEndpoint]:
+    """Manually unban a proxy and reset health counters."""
+    proxy = get_proxy(db, proxy_id)
+    if not proxy:
+        return None
+
+    proxy.banned_until = None
+    proxy.consecutive_failures = 0
+    proxy.unhealthy_until = None
+    proxy.last_failure_at = None
+    proxy.last_check_status = None
+    db.add(proxy)
+    db.commit()
+    db.refresh(proxy)
+    return proxy
 
 
 def mask_proxy(proxy: ProxyEndpoint) -> dict:
@@ -193,6 +255,10 @@ def mask_proxy(proxy: ProxyEndpoint) -> dict:
         "last_check_status": proxy.last_check_status,
         "last_exit_ip": proxy.last_exit_ip,
         "last_error": proxy.last_error,
+        "consecutive_failures": proxy.consecutive_failures,
+        "banned_until": proxy.banned_until,
+        "last_failure_at": proxy.last_failure_at,
+        "unhealthy_until": proxy.unhealthy_until,
         "created_at": proxy.created_at,
         "updated_at": proxy.updated_at,
     }

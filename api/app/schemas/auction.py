@@ -1,7 +1,7 @@
 """Pydantic schemas for auction sales and tracking endpoints."""
 
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 
@@ -102,6 +102,13 @@ class BidfaxJobCreate(BaseModel):
     schedule_interval_minutes: Optional[int] = Field(default=60, ge=10, description="Interval between scheduled crawls (min 10)")
     proxy_id: Optional[int] = Field(None, description="Optional proxy from proxy pool")
     fetch_mode: str = Field(default="http", description="Fetch mode: 'http' or 'browser'")
+    cookies: Optional[str] = Field(None, description="Optional cookie string for Cloudflare bypass")
+    strategy_id: str = Field(default="bidfax_default", description="Scraping strategy to use")
+    watch_mode: bool = Field(default=False, description="Enable visual browser mode (local dev only)")
+    use_2captcha: bool = Field(default=False, description="Enable 2Captcha for challenge solving")
+    batch_size: int = Field(default=2, ge=1, le=10, description="Batch size for parallel processing")
+    rpm: int = Field(default=30, ge=1, le=120, description="Requests per minute rate limit")
+    concurrency: int = Field(default=1, ge=1, le=5, description="Concurrent worker threads")
 
 
 class BidfaxTestParseRequest(BaseModel):
@@ -109,11 +116,26 @@ class BidfaxTestParseRequest(BaseModel):
     url: str = Field(..., description="Bidfax URL to test parse")
     proxy_id: Optional[int] = Field(None, description="Optional proxy from proxy pool")
     fetch_mode: str = Field(default="http", description="Fetch mode: 'http' or 'browser'")
+    cookies: Optional[str] = Field(None, description="Optional cookie string (e.g., 'name1=value1; name2=value2')")
+    watch_mode: bool = Field(default=False, description="Enable visual browser mode (local dev only)")
+    use_2captcha: bool = Field(default=False, description="Enable 2Captcha for challenge solving")
 
 
 class TrackingRetryRequest(BaseModel):
     """Schema for retrying a failed tracking."""
     reset_attempts: bool = Field(default=False, description="Reset attempt counter to 0")
+
+
+class StrategyResponse(BaseModel):
+    """Schema for scraping strategy metadata."""
+    id: str = Field(..., description="Strategy identifier")
+    label: str = Field(..., description="Human-readable strategy name")
+    description: str = Field(..., description="Strategy description")
+    supports_fetch_modes: List[str] = Field(..., description="Supported fetch modes (http/browser)")
+    supports_watch_mode: bool = Field(..., description="Whether visual browser mode is available")
+    default_fetch_mode: str = Field(..., description="Default fetch mode")
+    supports_2captcha: bool = Field(default=True, description="Whether strategy supports 2Captcha")
+    notes: Optional[str] = Field(None, description="Additional notes or warnings")
 
 
 # ============================================================================
@@ -154,6 +176,8 @@ class DebugInfo(BaseModel):
     url: str
     provider: str = "bidfax_html"
     fetch_mode: str = "http"
+    cloudflare_bypassed: bool = False
+    cookies_used: bool = False
 
 
 class BidfaxTestParseResponse(BaseModel):
