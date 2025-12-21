@@ -334,8 +334,12 @@ async def test_parse_url(
             start_time,
         )
 
+    # Dynamic timeout based on strategy parameters
+    # Browser mode needs more time, especially with 2Captcha (60s) + overhead
+    timeout_seconds = 70 if (request.fetch_mode == "browser" or request.use_2captcha) else 30
+
     try:
-        with anyio.fail_after(24):
+        with anyio.fail_after(timeout_seconds):
             return await run_sync_handler()
     except TimeoutError:
         latency_ms = int((time.time() - start_time) * 1000)

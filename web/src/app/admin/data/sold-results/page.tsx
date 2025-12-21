@@ -62,6 +62,7 @@ export default function SoldResultsPage() {
   const [testFetchMode, setTestFetchMode] = useState<"http" | "browser">("browser");
   const [testWatchMode, setTestWatchMode] = useState(false);
   const [testUse2Captcha, setTestUse2Captcha] = useState(false);
+  const [testCookies, setTestCookies] = useState("");
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
   const [lastTestSuccessUrl, setLastTestSuccessUrl] = useState<string | null>(null);
@@ -169,7 +170,8 @@ export default function SoldResultsPage() {
     setTestResult(null);
     const proxyChoice = proxyIdOverride === undefined ? selectedProxyId : proxyIdOverride;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
+    // Increased timeout to 75s to match backend (70s timeout + buffer)
+    const timeout = setTimeout(() => controller.abort(), 75000);
     try {
       const result = await testBidfaxParse({
         url: testUrl,
@@ -177,6 +179,7 @@ export default function SoldResultsPage() {
         fetch_mode: testFetchMode,
         watch_mode: testWatchMode,
         use_2captcha: testUse2Captcha,
+        cookies: testCookies || undefined,
       }, { signal: controller.signal });
       setTestResult(result);
       if (result?.success || result?.ok) {
@@ -184,7 +187,7 @@ export default function SoldResultsPage() {
         setTargetUrl(testUrl);
       }
     } catch (e: any) {
-      const message = e?.name === "AbortError" ? "Request timed out (25s)" : e?.message || "Request failed";
+      const message = e?.name === "AbortError" ? "Request timed out (75s)" : e?.message || "Request failed";
       setTestResult({ success: false, error: message });
       console.error("Test parse error", e);
     } finally {
@@ -349,6 +352,25 @@ export default function SoldResultsPage() {
               {testing ? "Testing..." : "Test"}
             </Button>
           </div>
+
+          {testFetchMode === "browser" && (
+            <div className="space-y-1">
+              <label htmlFor="test-cookies" className="text-xs text-slate-400">
+                Cookies (optional, for Cloudflare bypass)
+              </label>
+              <textarea
+                id="test-cookies"
+                placeholder="cf_clearance=...; _ga=...; PHPSESSID=..."
+                value={testCookies}
+                onChange={(e) => setTestCookies(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs font-mono resize-none"
+                rows={3}
+              />
+              <div className="text-xs text-slate-500">
+                Paste cookies from your browser to bypass Cloudflare challenges. Get cookies from DevTools → Application → Cookies.
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <div className="flex gap-4">

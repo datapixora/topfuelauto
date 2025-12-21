@@ -660,6 +660,7 @@ export async function testBidfaxParse(
     fetch_mode?: string;
     watch_mode?: boolean;
     use_2captcha?: boolean;
+    cookies?: string;
   },
   opts?: { signal?: AbortSignal }
 ) {
