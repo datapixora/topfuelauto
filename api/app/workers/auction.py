@@ -265,11 +265,18 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
                 tracking.proxy_exit_ip = proxy_exit_ip
                 if not check.get("ok"):
                     proxy_error = check.get("error") or "proxy check failed"
+                    if isinstance(proxy_error, dict):
+                        proxy_error = proxy_error.get("message") or proxy_error.get("detail") or "proxy check failed"
                     tracking.proxy_error = proxy_error
                     tracking.status = "failed"
                     _set_backoff(tracking)
                     db.commit()
-                    return {"error": "proxy_check_failed", "detail": proxy_error}
+                    return {
+                        "error": "proxy_check_failed",
+                        "detail": proxy_error,
+                        "error_code": check.get("error_code"),
+                        "stage": check.get("stage"),
+                    }
             except Exception as e:
                 proxy_error = str(e)
                 tracking.proxy_error = proxy_error
@@ -296,6 +303,7 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
             fetch_result = provider.fetch_list_page(
                 url=tracking.target_url,
                 proxy_url=proxy_url,
+                proxy_id=tracking.proxy_id,
                 fetch_mode=fetch_mode,
                 tracking_id=tracking.id,
             )

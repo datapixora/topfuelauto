@@ -64,6 +64,7 @@ class BrowserFetcher:
         self,
         url: str,
         proxy_url: Optional[str] = None,
+        proxy_id: Optional[int] = None,
         cookies: Optional[str] = None,
         tracking_id: Optional[int] = None,
     ) -> FetchDiagnostics:
@@ -73,6 +74,7 @@ class BrowserFetcher:
         Args:
             url: Target URL to fetch
             proxy_url: Optional proxy URL (e.g., http://user:pass@host:port)
+            proxy_id: Optional proxy identifier for logging/diagnostics
             cookies: Optional cookie string (e.g., "name1=value1; name2=value2")
             tracking_id: Optional tracking ID for artifact naming
 
@@ -91,7 +93,11 @@ class BrowserFetcher:
 
         try:
             with sync_playwright() as p:
-                logger.warning("PLAYWRIGHT BROWSER FETCH EXECUTED")
+                logger.info(
+                    "BROWSER_FETCH_START url=%s proxy_id=%s fetch_mode=browser",
+                    url,
+                    proxy_id,
+                )
                 # Parse proxy if provided
                 proxy_config = None
                 if proxy_url:
@@ -100,6 +106,7 @@ class BrowserFetcher:
                 # Launch browser with slow_mo if enabled
                 launch_options = {
                     'headless': self.headless,
+                    'proxy': proxy_config,
                     'args': [
                         '--disable-blink-features=AutomationControlled',
                         '--disable-dev-shm-usage',
@@ -114,12 +121,12 @@ class BrowserFetcher:
 
                 browser = p.chromium.launch(**launch_options)
 
-                # Create context with proxy
+                # Create context
                 context = browser.new_context(
-                    proxy=proxy_config,
                     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     viewport={'width': 1920, 'height': 1080},
                     locale='en-US',
+                    timezone_id='America/New_York',
                 )
 
                 # Start tracing if enabled (production debugging)
@@ -131,9 +138,16 @@ class BrowserFetcher:
                     context.tracing.start(screenshots=True, snapshots=True, sources=True)
                     logger.info(f"Trace recording started, will save to: {artifact_path}")
 
+                # Block heavy resources
+                def _block_route(route):
+                    if route.request.resource_type in ("image", "font", "media", "stylesheet"):
+                        return route.abort()
+                    return route.continue_()
+
                 # Create page and navigate
                 page = context.new_page()
                 page.set_default_timeout(self.timeout_ms)
+                page.route("**/*", _block_route)
 
                 # Inject cookies if provided
                 if cookies:
@@ -191,9 +205,15 @@ class BrowserFetcher:
                         artifact_path = None
 
                 logger.info(
-                    f"Browser fetch completed: {url} -> {status_code} "
-                    f"({latency_ms}ms, proxy={bool(proxy_url)}, cf_bypass={cloudflare_bypassed}, "
-                    f"artifact={bool(artifact_path)})"
+                    "BROWSER_FETCH_END url=%s proxy_id=%s status=%s final_url=%s latency_ms=%s proxy=%s cf_bypass=%s artifact=%s",
+                    url,
+                    proxy_id,
+                    status_code,
+                    final_url,
+                    latency_ms,
+                    bool(proxy_url),
+                    cloudflare_bypassed,
+                    bool(artifact_path),
                 )
 
                 return FetchDiagnostics(
@@ -276,8 +296,11 @@ class BrowserFetcher:
 
         parsed = urlparse(proxy_url)
 
+        if not parsed.hostname:
+            return {"server": proxy_url}
+
         config = {
-            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+            "server": f"http://{parsed.hostname}:{parsed.port or 80}"
         }
 
         if parsed.username:
@@ -300,7 +323,13 @@ class BrowserFetcher:
         try:
             # Navigate to ipify in same page (reuses proxy)
             page.goto("https://api.ipify.org?format=text", wait_until="domcontentloaded", timeout=5000)
-            exit_ip = page.content().strip()
+            exit_ip = None
+            try:
+                exit_ip = page.text_content("body")
+            except Exception:
+                # Some mocks do not support text_content(selector)
+                exit_ip = page.text_content() if hasattr(page, "text_content") else None
+            exit_ip = (exit_ip or page.content() or "").strip()
 
             # Validate IP format (simple check)
             if exit_ip and "." in exit_ip and len(exit_ip) < 16:

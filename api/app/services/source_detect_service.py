@@ -546,9 +546,11 @@ def _parse_playwright_proxy(proxy_url: str) -> Optional[dict]:
     if parsed.scheme not in ("http", "https", "socks5", "socks5h"):
         return None
 
-    server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.hostname and parsed.port else None
-    if not server:
+    if not parsed.hostname:
         return None
+
+    # Playwright expects CONNECT proxy server in http://HOST:PORT form even for TLS upstream proxies
+    server = f"http://{parsed.hostname}:{parsed.port or 80}"
 
     proxy: dict[str, Any] = {"server": server}
     if parsed.username:

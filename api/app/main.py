@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
+import os
 
 from app.core.config import get_settings
 from app.routers import auth, listings, search, vin, broker, billing, assist, alerts, legal
@@ -71,13 +72,22 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle all unhandled exceptions with CORS headers and logging."""
-    logger.error(f"Unhandled exception: {type(exc).__name__}: {exc}", exc_info=True)
+    request_id = request.headers.get("X-Request-Id") or ""
+    logger.exception(
+        "UNHANDLED_EXCEPTION",
+        extra={
+            "path": str(request.url.path),
+            "method": request.method,
+            "request_id": request_id,
+        },
+    )
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {type(exc).__name__}"},
+        content={"detail": f"Internal server error: {type(exc).__name__} (request_id={request_id})", "request_id": request_id},
         headers={
             "Access-Control-Allow-Origin": request.headers.get("Origin", "*") if request.headers.get("Origin") in settings.cors_origins else settings.cors_origins[0] if settings.cors_origins else "*",
             "Access-Control-Allow-Credentials": "true",
+            "X-Request-Id": request_id,
         },
     )
 
@@ -86,6 +96,16 @@ async def general_exception_handler(request: Request, exc: Exception):
 async def health():
     """Legacy root-level health for load balancers; prefer /api/v1/health."""
     return get_health_payload()
+
+
+@app.get("/api/v1/version")
+async def version():
+    """Lightweight version endpoint to confirm build provenance."""
+    return {
+        "service": "api",
+        "git_sha": settings.git_sha or os.getenv("GIT_SHA") or "unknown",
+        "build_time": settings.build_time or os.getenv("BUILD_TIME") or "unknown",
+    }
 
 
 @app.get("/")

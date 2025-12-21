@@ -44,3 +44,6 @@ class FetchDiagnostics:
 
     artifact_path: Optional[str] = None
     """Path to saved trace/video artifact (for production debugging)"""
+
+    attempts: list = None
+    """List of attempt metadata dictionaries (optional)"""
