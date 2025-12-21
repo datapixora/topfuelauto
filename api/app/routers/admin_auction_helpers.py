@@ -132,27 +132,33 @@ def _test_parse_sync(
 
     # Build proxy candidate list - try ALL healthy proxies with "ok" status
     proxy_candidates = []
-    if proxy_id:
-        # User selected a specific proxy - try it first, then fall back to others
-        proxy = proxy_service.get_proxy(db, proxy_id)
-        if not proxy:
-            raise HTTPException(status_code=404, detail="Proxy not found")
-        proxy_candidates.append(proxy)
-        # Add all other healthy proxies as fallbacks
-        proxy_candidates.extend(_healthy_proxies({proxy.id}, require_ok_status=True))
-    else:
-        # Get ALL healthy proxies with "ok" status
-        proxy_candidates = _healthy_proxies(require_ok_status=True)
+    try:
+        if proxy_id:
+            # User selected a specific proxy - try it first, then fall back to others
+            proxy = proxy_service.get_proxy(db, proxy_id)
+            if not proxy:
+                raise HTTPException(status_code=404, detail="Proxy not found")
+            proxy_candidates.append(proxy)
+            # Add all other healthy proxies as fallbacks
+            proxy_candidates.extend(_healthy_proxies({proxy.id}, require_ok_status=True))
+        else:
+            # Get ALL healthy proxies with "ok" status
+            proxy_candidates = _healthy_proxies(require_ok_status=True)
 
-    # If no healthy proxies with "ok" status, try to refresh from Smartproxy
-    if not proxy_candidates:
-        logger.warning("No healthy proxies with 'ok' status found, attempting Smartproxy refresh...")
-        refresh_result = _refresh_smartproxy_pool()
-        if refresh_result:
-            # Try again after refresh
-            proxy_candidates = _healthy_proxies(require_ok_status=False)  # Be less strict after refresh
+        # If no healthy proxies with "ok" status, try to refresh from Smartproxy
+        if not proxy_candidates:
+            logger.warning("No healthy proxies with 'ok' status found, attempting Smartproxy refresh...")
+            refresh_result = _refresh_smartproxy_pool()
+            if refresh_result:
+                # Try again after refresh
+                proxy_candidates = _healthy_proxies(require_ok_status=False)  # Be less strict after refresh
 
-    logger.info(f"Found {len(proxy_candidates)} proxy candidates to try")
+        logger.info(f"Found {len(proxy_candidates)} proxy candidates to try")
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"Error building proxy candidate list: {e}", exc_info=True)
+        return fail_response("PROXY_SELECTION_ERROR", "proxy_select", f"Failed to build proxy list: {str(e)}")
 
     proxy_check_result = None
     if proxy_candidates:
@@ -163,30 +169,36 @@ def _test_parse_sync(
 
     # Try ALL proxy candidates until one works
     for idx, candidate in enumerate(proxy_candidates):
-        proxy_used = True
-        proxy_name = candidate.name
-        proxy_url_candidate = proxy_service.build_proxy_url(candidate)
+        try:
+            proxy_used = True
+            proxy_name = candidate.name
+            proxy_url_candidate = proxy_service.build_proxy_url(candidate)
 
-        logger.info(f"Trying proxy {idx+1}/{len(proxy_candidates)}: {proxy_name} (id={candidate.id})")
+            logger.info(f"Trying proxy {idx+1}/{len(proxy_candidates)}: {proxy_name} (id={candidate.id})")
 
-        proxy_check_result = proxy_service.check_proxy(db, candidate)
-        proxy_stage = proxy_check_result.get("stage")
-        proxy_error_code = proxy_check_result.get("error_code")
-        candidate_exit_ip = proxy_check_result.get("exit_ip")
-        if candidate_exit_ip:
-            proxy_exit_ip = candidate_exit_ip
+            proxy_check_result = proxy_service.check_proxy(db, candidate)
+            proxy_stage = proxy_check_result.get("stage")
+            proxy_error_code = proxy_check_result.get("error_code")
+            candidate_exit_ip = proxy_check_result.get("exit_ip")
+            if candidate_exit_ip:
+                proxy_exit_ip = candidate_exit_ip
 
-        if proxy_check_result.get("ok"):
-            chosen_proxy = candidate
-            proxy_url = proxy_url_candidate
-            logger.info(f"Proxy {proxy_name} passed health check, using it")
-            break
-        else:
-            logger.warning(f"Proxy {proxy_name} failed: {proxy_check_result.get('error')}")
+            if proxy_check_result.get("ok"):
+                chosen_proxy = candidate
+                proxy_url = proxy_url_candidate
+                logger.info(f"Proxy {proxy_name} passed health check, using it")
+                break
+            else:
+                logger.warning(f"Proxy {proxy_name} failed: {proxy_check_result.get('error')}")
 
-        proxy_error = proxy_check_result.get("error")
-        if isinstance(proxy_error, dict):
-            proxy_error = proxy_error.get("message") or proxy_error.get("detail")
+            proxy_error = proxy_check_result.get("error")
+            if isinstance(proxy_error, dict):
+                proxy_error = proxy_error.get("message") or proxy_error.get("detail")
+        except Exception as e:
+            logger.error(f"Exception checking proxy {candidate.name} (id={candidate.id}): {e}", exc_info=True)
+            proxy_error = f"Proxy check exception: {str(e)}"
+            proxy_error_code = "PROXY_CHECK_EXCEPTION"
+            continue  # Try next proxy
 
     if proxy_check_result:
         if proxy_stage == "proxy_check_https":
