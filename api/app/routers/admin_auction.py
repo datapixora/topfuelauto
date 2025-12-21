@@ -372,10 +372,40 @@ async def test_parse_url(
             html="",
             error=schemas.ErrorInfo(code="REQUEST_TIMEOUT", stage="overall", message="Request timed out"),
         )
-    except Exception:
-        # Will be handled by global handler but add request_id header for clarity
-        response.headers["X-Request-Id"] = request_id
-        raise
+    except Exception as e:
+        # Catch all other exceptions and return proper response structure
+        latency_ms = int((time.time() - start_time) * 1000)
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        logger.error(
+            "TEST_PARSE_EXCEPTION",
+            extra={"request_id": request_id, "url": request.url, "fetch_mode": request.fetch_mode, "error": error_msg},
+            exc_info=True,
+        )
+        return schemas.BidfaxTestParseResponse(
+            ok=False,
+            http=schemas.HttpInfo(status=500, error=error_msg, latency_ms=latency_ms),
+            proxy=schemas.ProxyInfo(
+                used=False,
+                proxy_id=request.proxy_id,
+                proxy_name=None,
+                exit_ip=None,
+                error=error_msg,
+                error_code="INTERNAL_ERROR",
+                stage="internal",
+                latency_ms=None,
+            ),
+            parse=schemas.ParseInfo(ok=False, missing=[]),
+            debug=schemas.DebugInfo(
+                url=request.url,
+                provider="bidfax_html",
+                fetch_mode=request.fetch_mode,
+                request_id=request_id,
+            ),
+            fetch_mode=request.fetch_mode,
+            final_url=request.url,
+            html="",
+            error=schemas.ErrorInfo(code="INTERNAL_ERROR", stage="internal", message=error_msg),
+        )
 
     def _healthy_proxies(exclude_ids: Optional[set[int]] = None):
         now = datetime.now(timezone.utc)
