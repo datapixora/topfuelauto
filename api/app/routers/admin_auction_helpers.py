@@ -75,21 +75,51 @@ def _test_parse_sync(
             error=error_obj,
         )
 
-    def _healthy_proxies(exclude_ids: Optional[Set[int]] = None):
+    def _healthy_proxies(exclude_ids: Optional[Set[int]] = None, require_ok_status: bool = True):
+        """Get healthy, non-banned proxies. Optionally filter by last_check_status='ok'."""
         now = datetime.now(timezone.utc)
         exclude = exclude_ids or set()
         healthy = []
         for p in proxy_service.list_enabled_proxies(db):
             if p.id in exclude:
                 continue
+
+            # Skip if banned
+            if p.banned_until:
+                banned = p.banned_until
+                if banned.tzinfo is None:
+                    banned = banned.replace(tzinfo=timezone.utc)
+                if banned > now:
+                    continue
+
+            # Skip if unhealthy
             u = p.unhealthy_until
             if u is not None:
                 if u.tzinfo is None:
                     u = u.replace(tzinfo=timezone.utc)
                 if u > now:
                     continue
+
+            # Skip if not in "ok" status (when required)
+            if require_ok_status and p.last_check_status != "ok":
+                continue
+
             healthy.append(p)
         return healthy
+
+    def _refresh_smartproxy_pool():
+        """Refresh proxy pool from Smartproxy API."""
+        try:
+            from app.services.smartproxy_service import SmartproxyAPI, sync_smartproxy_to_db
+            logger.info("Auto-refreshing Smartproxy pool due to no healthy proxies...")
+            api = SmartproxyAPI()
+            proxies = api.fetch_proxies()
+            stats = sync_smartproxy_to_db(db, proxies)
+            logger.info(f"Smartproxy auto-refresh: {stats['created']} created, {stats['updated']} updated")
+            return stats
+        except Exception as e:
+            logger.error(f"Failed to auto-refresh Smartproxy pool: {e}")
+            return None
 
     # Validate fetch_mode
     if fetch_mode not in ("http", "browser"):
@@ -100,44 +130,60 @@ def _test_parse_sync(
         extra={"request_id": request_id, "url": request.url, "fetch_mode": fetch_mode},
     )
 
-    # Build proxy candidate list (max 2 attempts)
+    # Build proxy candidate list - try ALL healthy proxies with "ok" status
     proxy_candidates = []
     if proxy_id:
+        # User selected a specific proxy - try it first, then fall back to others
         proxy = proxy_service.get_proxy(db, proxy_id)
         if not proxy:
             raise HTTPException(status_code=404, detail="Proxy not found")
         proxy_candidates.append(proxy)
-        alt = _healthy_proxies({proxy.id})
-        if alt:
-            proxy_candidates.append(alt[0])
+        # Add all other healthy proxies as fallbacks
+        proxy_candidates.extend(_healthy_proxies({proxy.id}, require_ok_status=True))
     else:
-        primary = _healthy_proxies()
-        if primary:
-            proxy_candidates.append(primary[0])
-            alt = _healthy_proxies({primary[0].id})
-            if alt:
-                proxy_candidates.append(alt[0])
+        # Get ALL healthy proxies with "ok" status
+        proxy_candidates = _healthy_proxies(require_ok_status=True)
+
+    # If no healthy proxies with "ok" status, try to refresh from Smartproxy
+    if not proxy_candidates:
+        logger.warning("No healthy proxies with 'ok' status found, attempting Smartproxy refresh...")
+        refresh_result = _refresh_smartproxy_pool()
+        if refresh_result:
+            # Try again after refresh
+            proxy_candidates = _healthy_proxies(require_ok_status=False)  # Be less strict after refresh
+
+    logger.info(f"Found {len(proxy_candidates)} proxy candidates to try")
 
     proxy_check_result = None
     if proxy_candidates:
         logger.info(
             "STAGE_START proxy_check",
-            extra={"request_id": request_id, "url": request.url, "fetch_mode": fetch_mode},
+            extra={"request_id": request_id, "url": request.url, "fetch_mode": fetch_mode, "candidates": len(proxy_candidates)},
         )
-    for candidate in proxy_candidates[:2]:
+
+    # Try ALL proxy candidates until one works
+    for idx, candidate in enumerate(proxy_candidates):
         proxy_used = True
         proxy_name = candidate.name
         proxy_url_candidate = proxy_service.build_proxy_url(candidate)
+
+        logger.info(f"Trying proxy {idx+1}/{len(proxy_candidates)}: {proxy_name} (id={candidate.id})")
+
         proxy_check_result = proxy_service.check_proxy(db, candidate)
         proxy_stage = proxy_check_result.get("stage")
         proxy_error_code = proxy_check_result.get("error_code")
         candidate_exit_ip = proxy_check_result.get("exit_ip")
         if candidate_exit_ip:
             proxy_exit_ip = candidate_exit_ip
+
         if proxy_check_result.get("ok"):
             chosen_proxy = candidate
             proxy_url = proxy_url_candidate
+            logger.info(f"Proxy {proxy_name} passed health check, using it")
             break
+        else:
+            logger.warning(f"Proxy {proxy_name} failed: {proxy_check_result.get('error')}")
+
         proxy_error = proxy_check_result.get("error")
         if isinstance(proxy_error, dict):
             proxy_error = proxy_error.get("message") or proxy_error.get("detail")
