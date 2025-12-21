@@ -149,11 +149,13 @@ class BrowserFetcher:
                 page.set_default_timeout(self.timeout_ms)
                 page.route("**/*", _block_route)
 
-                # Inject cookies if provided
-                if cookies:
-                    cookie_list = self._parse_cookies(url, cookies)
+                # Inject cookies if provided, or load from environment
+                cookies_to_use = cookies or os.getenv('BIDFAX_COOKIES')
+                if cookies_to_use:
+                    cookie_list = self._parse_cookies(url, cookies_to_use)
                     context.add_cookies(cookie_list)
-                    logger.info(f"Injected {len(cookie_list)} cookies")
+                    source = "parameter" if cookies else "environment"
+                    logger.info(f"Injected {len(cookie_list)} cookies from {source}")
 
                 response = page.goto(
                     url,

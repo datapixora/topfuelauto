@@ -487,6 +487,15 @@ async def test_parse_url(
             },
         )
 
+        # Auto-load default cookies if none provided
+        cookies_to_use = request.cookies
+        if not cookies_to_use and fetch_mode == "browser":
+            from app.services import settings_service
+            default_cookies = settings_service.get_setting(db, "bidfax_cookies")
+            if default_cookies:
+                cookies_to_use = default_cookies
+                logger.info("Using default Bidfax cookies from database")
+
         # Fetch HTML using specified mode with strategy parameters
         provider = BidfaxHtmlProvider(
             watch_mode=request.watch_mode,
@@ -498,7 +507,7 @@ async def test_parse_url(
             proxy_url=proxy_url,
             proxy_id=chosen_proxy.id if chosen_proxy else proxy_id,
             fetch_mode=fetch_mode,
-            cookies=request.cookies,
+            cookies=cookies_to_use,
         )
 
         # Update diagnostics from fetch result

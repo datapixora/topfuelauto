@@ -289,6 +289,15 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
         # Get fetch_mode from tracking.stats (default to 'http')
         fetch_mode = tracking.stats.get("fetch_mode", "http") if tracking.stats else "http"
 
+        # Auto-load default cookies for browser mode
+        cookies = None
+        if fetch_mode == "browser":
+            from app.services import settings_service
+            default_cookies = settings_service.get_setting(db, "bidfax_cookies")
+            if default_cookies:
+                cookies = default_cookies
+                logger.info("Using default Bidfax cookies from database for crawl job")
+
         try:
             logger.info(
                 "Bidfax fetch started",
@@ -305,6 +314,7 @@ def fetch_and_parse_tracking(self: Task, tracking_id: int):
                 proxy_url=proxy_url,
                 proxy_id=tracking.proxy_id,
                 fetch_mode=fetch_mode,
+                cookies=cookies,
                 tracking_id=tracking.id,
             )
 
